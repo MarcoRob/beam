@@ -19,17 +19,19 @@
 plugins { id 'org.apache.beam.module' }
 applyJavaNature(automaticModuleName: 'org.apache.beam.sdk.io.pulsar')
 
+description = "Apache Beam :: SDKs :: Java :: IO :: Pulsar"
+ext.summary = "IO to read and write to Pulsar"
+
 def pulsar_version = '2.8.2'
 
 
 dependencies {
-    compile "org.apache.pulsar:pulsar-client:$pulsar_version"
-    compile "org.apache.pulsar:pulsar-client-admin:$pulsar_version"
-    compile project(path: ":sdks:java:core", configuration: "shadow")
-    compile project(":runners:core-construction-java")
-
-    testCompile project(path: ":sdks:java:io:common", configuration: "testRuntime")
-    testCompile project(":runners:core-construction-java")
+    implementation "org.apache.pulsar:pulsar-client:$pulsar_version"
+    implementation "org.apache.pulsar:pulsar-client-admin:$pulsar_version"
+    implementation project(path: ":sdks:java:core", configuration: "shadow")
+    implementation project(":runners:core-construction-java")
+    testImplementation project(path: ":sdks:java:io:common", configuration: "testRuntimeMigration")
+    testImplementation project(":runners:core-construction-java")
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
     testRuntimeOnly project(path: ":runners:direct-java", configuration: "shadow")

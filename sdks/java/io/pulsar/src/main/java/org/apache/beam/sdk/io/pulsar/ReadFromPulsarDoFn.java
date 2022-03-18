@@ -44,7 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @DoFn.UnboundedPerElement
-@SuppressWarnings("rawtypes")
+@SuppressWarnings({"rawtypes", "nullness"})
 public class ReadFromPulsarDoFn extends DoFn<PulsarSourceDescriptor, PulsarMessage> {
 
   private static final Logger LOG = LoggerFactory.getLogger(ReadFromPulsarDoFn.class);

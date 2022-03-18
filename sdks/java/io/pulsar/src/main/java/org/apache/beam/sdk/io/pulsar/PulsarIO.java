@@ -31,6 +31,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.joda.time.Instant;
 
+@SuppressWarnings({"rawtypes", "nullness"})
 public class PulsarIO {
 
   /** Static class, prevent instantiation. */

@@ -17,8 +17,6 @@
  */
 package org.apache.beam.sdk.io.pulsar;
 
-import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
-
 /**
  * Class representing a Pulsar Message record. Each PulsarMessage contains a single message basic
  * message data and Message record to access directly.
@@ -28,16 +26,15 @@ public class PulsarMessage {
   private Long publishTimestamp;
   private Object messageRecord;
 
-  @VisibleForTesting
-  public PulsarMessage(String topic, Long publishTimestamp) {
-    this.topic = topic;
-    this.publishTimestamp = publishTimestamp;
-  }
-
   public PulsarMessage(String topic, Long publishTimestamp, Object messageRecord) {
     this.topic = topic;
     this.publishTimestamp = publishTimestamp;
     this.messageRecord = messageRecord;
+  }
+
+  public PulsarMessage(String topic, Long publishTimestamp) {
+    this.topic = topic;
+    this.publishTimestamp = publishTimestamp;
   }
 
   public String getTopic() {
@@ -48,6 +45,9 @@ public class PulsarMessage {
     return publishTimestamp;
   }
 
+  public void setMessageRecord(Object messageRecord) {
+    this.messageRecord = messageRecord;
+  }
   public Object getMessageRecord() {
     return messageRecord;
   }

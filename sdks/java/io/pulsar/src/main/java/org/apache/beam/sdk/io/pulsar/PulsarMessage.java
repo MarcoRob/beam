@@ -21,6 +21,7 @@ package org.apache.beam.sdk.io.pulsar;
  * Class representing a Pulsar Message record. Each PulsarMessage contains a single message basic
  * message data and Message record to access directly.
  */
+@SuppressWarnings("initialization.fields.uninitialized")
 public class PulsarMessage {
   private String topic;
   private Long publishTimestamp;
@@ -48,6 +49,7 @@ public class PulsarMessage {
   public void setMessageRecord(Object messageRecord) {
     this.messageRecord = messageRecord;
   }
+
   public Object getMessageRecord() {
     return messageRecord;
   }

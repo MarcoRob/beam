@@ -19,6 +19,7 @@ package org.apache.beam.sdk.io.pulsar;
 
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,13 +33,12 @@ final class PulsarIOUtils {
       new SerializableFunction<String, PulsarClient>() {
         @Override
         public PulsarClient apply(String input) {
-          PulsarClient client = null;
           try {
-            client = PulsarClient.builder().serviceUrl(input).build();
-          } catch (Exception e) {
+            return PulsarClient.builder().serviceUrl(input).build();
+          } catch (PulsarClientException e) {
             LOG.error(e.getMessage());
+            throw new RuntimeException(e);
           }
-          return client;
         }
       };
 }

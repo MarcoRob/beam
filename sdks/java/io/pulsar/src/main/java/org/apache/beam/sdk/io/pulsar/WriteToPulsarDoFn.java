@@ -23,6 +23,8 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 
+@DoFn.UnboundedPerElement
+@SuppressWarnings({"rawtypes", "nullness"})
 public class WriteToPulsarDoFn extends DoFn<byte[], Void> {
 
   private Producer<byte[]> producer;

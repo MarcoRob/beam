@@ -220,13 +220,13 @@ public class ReadFromPulsarDoFn extends DoFn<PulsarSourceDescriptor, PulsarMessa
       this.memoizedBacklog =
           Suppliers.memoizeWithExpiration(
               () -> {
-                Message<byte[]> lastMsg = null;
                 try {
-                  lastMsg = admin.topics().examineMessage(topic, "latest", 1);
+                  Message<byte[]> lastMsg = admin.topics().examineMessage(topic, "latest", 1);
+                  return lastMsg;
                 } catch (PulsarAdminException e) {
                   LOG.error(e.getMessage());
+                  throw new RuntimeException(e);
                 }
-                return lastMsg;
               },
               1,
               TimeUnit.SECONDS);

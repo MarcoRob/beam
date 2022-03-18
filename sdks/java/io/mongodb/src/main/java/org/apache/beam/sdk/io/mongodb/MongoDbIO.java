@@ -463,7 +463,10 @@ public class MongoDbIO {
           if (spec.bucketAuto()) {
             splitKeys = buildAutoBuckets(mongoDatabase, spec);
           } else {
-            if (spec.numSplits() > 0) {
+            if (spec.numSplits() <= 0) {
+              LOG.debug("Split keys disabled, using a unique source");
+              return Collections.singletonList(this);
+            } else {
               // the user defines his desired number of splits
               // calculate the batch size
               long estimatedSizeBytes =
@@ -628,7 +631,6 @@ public class MongoDbIO {
       ObjectId lowestBound = null; // lower boundary (previous split in the iteration)
       for (int i = 0; i < splitKeys.size(); i++) {
         ObjectId splitKey = splitKeys.get(i).getObjectId("_id");
-        String rangeFilter;
         if (i == 0) {
           aggregates.add(Aggregates.match(Filters.lte("_id", splitKey)));
           if (splitKeys.size() == 1) {

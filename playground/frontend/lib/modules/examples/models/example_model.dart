@@ -38,21 +38,33 @@ extension ExampleTypeToString on ExampleType {
   }
 }
 
-class ExampleModel {
+class ExampleModel with Comparable<ExampleModel> {
   final ExampleType type;
   final String name;
   final String path;
   final String description;
+  final int contextLine;
+  bool isMultiFile;
+  String? link;
   String? source;
   String? outputs;
+  String? logs;
+  String? pipelineOptions;
+  String? graph;
 
   ExampleModel({
     required this.name,
     required this.path,
     required this.description,
     required this.type,
+    this.contextLine = 1,
+    this.isMultiFile = false,
+    this.link,
     this.source,
     this.outputs,
+    this.logs,
+    this.pipelineOptions,
+    this.graph,
   });
 
   setSource(String source) {
@@ -61,5 +73,30 @@ class ExampleModel {
 
   setOutputs(String outputs) {
     this.outputs = outputs;
+  }
+
+  setLogs(String logs) {
+    this.logs = logs;
+  }
+
+  setGraph(String graph) {
+    this.graph = graph;
+  }
+
+  bool isInfoFetched() {
+    // checking only source, because outputs/logs can be empty
+    return source?.isNotEmpty ?? false;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is ExampleModel && path == other.path);
+
+  @override
+  int get hashCode => path.hashCode;
+
+  @override
+  int compareTo(ExampleModel other) {
+    return name.toLowerCase().compareTo(other.name.toLowerCase());
   }
 }

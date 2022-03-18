@@ -74,7 +74,6 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableRefToJson;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSchemaToJsonSchema;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TableSpecToTableRef;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.TimePartitioningToJson;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryResourceNaming.JobType;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.DatasetService;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.JobService;
@@ -91,6 +90,8 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.StaticValueProvider;
+import org.apache.beam.sdk.schemas.FieldAccessDescriptor;
+import org.apache.beam.sdk.schemas.ProjectionProducer;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -117,6 +118,7 @@ import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.MoreObjects;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Predicates;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Strings;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
@@ -730,7 +732,8 @@ public class BigQueryIO {
 
   /** Implementation of {@link BigQueryIO#read(SerializableFunction)}. */
   @AutoValue
-  public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>> {
+  public abstract static class TypedRead<T> extends PTransform<PBegin, PCollection<T>>
+      implements ProjectionProducer<PTransform<PBegin, PCollection<T>>> {
     /** Determines the method used to read data from BigQuery. */
     public enum Method {
       /** The default behavior if no method is explicitly set. Currently {@link #EXPORT}. */
@@ -1619,6 +1622,29 @@ public class BigQueryIO {
     public TypedRead<T> useAvroLogicalTypes() {
       return toBuilder().setUseAvroLogicalTypes(true).build();
     }
+
+    @Override
+    public boolean supportsProjectionPushdown() {
+      // We can't do projection pushdown when a query is set. The query may project certain fields
+      // itself, and we can't know without parsing the query.
+      return Method.DIRECT_READ.equals(getMethod()) && getQuery() == null;
+    }
+
+    @Override
+    public PTransform<PBegin, PCollection<T>> actuateProjectionPushdown(
+        Map<TupleTag<?>, FieldAccessDescriptor> outputFields) {
+      Preconditions.checkArgument(supportsProjectionPushdown());
+      FieldAccessDescriptor fieldAccessDescriptor = outputFields.get(new TupleTag<>("output"));
+      org.apache.beam.sdk.util.Preconditions.checkArgumentNotNull(
+          fieldAccessDescriptor, "Expected pushdown on the main output (tagged 'output')");
+      Preconditions.checkArgument(
+          outputFields.size() == 1,
+          "Expected only to pushdown on the main output (tagged 'output'). Requested tags: %s",
+          outputFields.keySet());
+      ImmutableList<String> fields =
+          ImmutableList.copyOf(fieldAccessDescriptor.fieldNamesAccessed());
+      return withSelectedFields(fields);
+    }
   }
 
   static String getExtractDestinationUri(String extractDestinationDir) {
@@ -1848,6 +1874,8 @@ public class BigQueryIO {
     @Experimental
     abstract @Nullable SerializableFunction<T, String> getDeterministicRecordIdFn();
 
+    abstract @Nullable String getWriteTempDataset();
+
     abstract Builder<T> toBuilder();
 
     @AutoValue.Builder
@@ -1935,6 +1963,8 @@ public class BigQueryIO {
       @Experimental
       abstract Builder<T> setDeterministicRecordIdFn(
           SerializableFunction<T, String> toUniqueIdFunction);
+
+      abstract Builder<T> setWriteTempDataset(String writeTempDataset);
 
       abstract Write<T> build();
     }
@@ -2224,9 +2254,9 @@ public class BigQueryIO {
     /**
      * Allows writing to clustered tables when {@link #to(SerializableFunction)} or {@link
      * #to(DynamicDestinations)} is used. The returned {@link TableDestination} objects should
-     * specify the time partitioning and clustering fields per table. If writing to a single table,
-     * use {@link #withClustering(Clustering)} instead to pass a {@link Clustering} instance that
-     * specifies the static clustering fields to use.
+     * specify the clustering fields per table. If writing to a single table, use {@link
+     * #withClustering(Clustering)} instead to pass a {@link Clustering} instance that specifies the
+     * static clustering fields to use.
      *
      * <p>Setting this option enables use of {@link TableDestinationCoderV3} which encodes
      * clustering information. The updated coder is compatible with non-clustered tables, so can be
@@ -2509,6 +2539,18 @@ public class BigQueryIO {
       return toBuilder().setMaxBytesPerPartition(maxBytesPerPartition).build();
     }
 
+    /**
+     * Temporary dataset. When writing to BigQuery from large file loads, the {@link
+     * BigQueryIO#write()} will create temporary tables in a dataset to store staging data from
+     * partitions. With this option, you can set an existing dataset to create the temporary tables.
+     * BigQueryIO will create temporary tables in that dataset, and will remove it once it is not
+     * needed. No other tables in the dataset will be modified. Remember that the dataset must exist
+     * and your job needs permissions to create and remove tables inside that dataset.
+     */
+    public Write<T> withWriteTempDataset(String writeTempDataset) {
+      return toBuilder().setWriteTempDataset(writeTempDataset).build();
+    }
+
     @Override
     public void validate(PipelineOptions pipelineOptions) {
       BigQueryOptions options = pipelineOptions.as(BigQueryOptions.class);
@@ -2644,11 +2686,6 @@ public class BigQueryIO {
             getTableFunction() == null,
             "The supplied getTableFunction object can directly set TimePartitioning."
                 + " There is no need to call BigQueryIO.Write.withTimePartitioning.");
-      }
-      if (getClustering() != null && getClustering().getFields() != null) {
-        checkArgument(
-            getJsonTimePartitioning() != null,
-            "Clustering fields can only be set when TimePartitioning is set.");
       }
 
       DynamicDestinations<T, ?> dynamicDestinations = getDynamicDestinations();
@@ -2866,7 +2903,8 @@ public class BigQueryIO {
                 rowWriterFactory,
                 getKmsKey(),
                 getClustering() != null,
-                getUseAvroLogicalTypes());
+                getUseAvroLogicalTypes(),
+                getWriteTempDataset());
         batchLoads.setTestServices(getBigQueryServices());
         if (getSchemaUpdateOptions() != null) {
           batchLoads.setSchemaUpdateOptions(getSchemaUpdateOptions());
@@ -2908,10 +2946,7 @@ public class BigQueryIO {
           // Fallback behavior: convert to JSON TableRows and convert those into Beam TableRows.
           storageApiDynamicDestinations =
               new StorageApiDynamicDestinationsTableRow<>(
-                  dynamicDestinations,
-                  tableRowWriterFactory.getToRowFn(),
-                  getBigQueryServices().getDatasetService(bqOptions),
-                  getCreateDisposition());
+                  dynamicDestinations, tableRowWriterFactory.getToRowFn(), getCreateDisposition());
         }
 
         StorageApiLoads<DestinationT, T> storageApiLoads =

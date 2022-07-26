@@ -92,7 +92,7 @@ func (f *fakeDataClient) Send(*fnpb.Elements) error {
 	// We skip errors on the first call to test that  errors can be returned
 	// on the sentinel value send in dataWriter.Close
 	// Otherwise, we return an io.EOF similar to semantics documented
-	// in https://godoc.org/google.golang.org/grpc#ClientConn.NewStream
+	// in https://pkg.go.dev/google.golang.org/grpc#ClientConn.NewStream
 	if f.skipFirstError && f.err != nil {
 		f.skipFirstError = false
 		return nil
@@ -304,7 +304,7 @@ func TestDataChannelTerminate_Writes(t *testing.T) {
 				t.Errorf("Unexpected error: got %v, want %v", got, want)
 			}
 			// Verify that new readers return the same error for writes after stream termination.
-			// TODO(lostluck) 2019.11.26: use the the go 1.13 errors package to check this rather
+			// TODO(lostluck) 2019.11.26: use the go 1.13 errors package to check this rather
 			// than a strings.Contains check once testing infrastructure can use go 1.13.
 			if n, err := c.OpenWrite(ctx, "ptr", instID).Write(msg); err != nil && !strings.Contains(err.Error(), expectedError.Error()) {
 				t.Errorf("Unexpected error from write: got %v, want, %v read %d bytes.", err, expectedError, n)

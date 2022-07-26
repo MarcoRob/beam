@@ -85,11 +85,15 @@ import org.slf4j.LoggerFactory;
  * If you need the full ResponseMetadata and SdkHttpMetadata you can call {@link
  * Write#withFullPublishResult}. If you need the HTTP status code but not the response headers you
  * can call {@link Write#withFullPublishResultWithoutHeaders}.
+ *
+ * @deprecated Module <code>beam-sdks-java-io-amazon-web-services</code> is deprecated and will be
+ *     eventually removed. Please migrate to {@link org.apache.beam.sdk.io.aws2.sns.SnsIO} in module
+ *     <code>beam-sdks-java-io-amazon-web-services2</code>.
  */
 @Experimental(Kind.SOURCE_SINK)
+@Deprecated
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public final class SnsIO {
 
@@ -109,7 +113,6 @@ public final class SnsIO {
    */
   @AutoValue
   @AutoValue.CopyAnnotations
-  @SuppressWarnings({"rawtypes"})
   public abstract static class RetryConfiguration implements Serializable {
     private static final Duration DEFAULT_INITIAL_DURATION = Duration.standardSeconds(5);
 
@@ -186,7 +189,6 @@ public final class SnsIO {
   /** Implementation of {@link #write}. */
   @AutoValue
   @AutoValue.CopyAnnotations
-  @SuppressWarnings({"rawtypes"})
   public abstract static class Write
       extends PTransform<PCollection<PublishRequest>, PCollectionTuple> {
 
@@ -198,7 +200,7 @@ public final class SnsIO {
 
     abstract @Nullable TupleTag<PublishResult> getResultOutputTag();
 
-    abstract @Nullable Coder getCoder();
+    abstract @Nullable Coder<PublishResult> getCoder();
 
     abstract Builder builder();
 
@@ -213,7 +215,7 @@ public final class SnsIO {
 
       abstract Builder setResultOutputTag(TupleTag<PublishResult> results);
 
-      abstract Builder setCoder(Coder coder);
+      abstract Builder setCoder(Coder<PublishResult> coder);
 
       abstract Write build();
     }
@@ -311,6 +313,11 @@ public final class SnsIO {
 
     @Override
     public PCollectionTuple expand(PCollection<PublishRequest> input) {
+      LoggerFactory.getLogger(SnsIO.class)
+          .warn(
+              "You are using a deprecated IO for Sns. Please migrate to module "
+                  + "'org.apache.beam:beam-sdks-java-io-amazon-web-services2'.");
+
       checkArgument(getTopicName() != null, "withTopicName() is required");
       PCollectionTuple result =
           input.apply(
@@ -324,7 +331,7 @@ public final class SnsIO {
 
     static class SnsWriterFn extends DoFn<PublishRequest, PublishResult> {
       @VisibleForTesting
-      static final String RETRY_ATTEMPT_LOG = "Error writing to SNS. Retry attempt[%d]";
+      static final String RETRY_ATTEMPT_LOG = "Error writing to SNS. Retry attempt[{}]";
 
       private transient FluentBackoff retryBackoff; // defaults to no retries
       private static final Logger LOG = LoggerFactory.getLogger(SnsWriterFn.class);
@@ -386,7 +393,7 @@ public final class SnsIO {
                   ex);
             } else {
               // Note: this used in test cases to verify behavior
-              LOG.warn(String.format(RETRY_ATTEMPT_LOG, attempt), ex);
+              LOG.warn(RETRY_ATTEMPT_LOG, attempt, ex);
             }
           }
         }

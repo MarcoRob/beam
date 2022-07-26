@@ -138,9 +138,6 @@ public class DatastoreV1Test {
   public void setUp() {
     MockitoAnnotations.initMocks(this);
 
-    DatastoreV1.Read initialRead =
-        DatastoreIO.v1().read().withProjectId(PROJECT_ID).withQuery(QUERY).withNamespace(NAMESPACE);
-
     when(mockDatastoreFactory.getDatastore(any(PipelineOptions.class), any(String.class), any()))
         .thenReturn(mockDatastore);
     when(mockDatastoreFactory.getQuerySplitter()).thenReturn(mockQuerySplitter);
@@ -815,6 +812,22 @@ public class DatastoreV1Test {
     assertEquals(
         translateGqlQueryWithLimitCheck(gql, mockDatastore, V_1_OPTIONS.getNamespace()), QUERY);
     verify(mockDatastore, times(1)).runQuery(gqlRequestWithZeroLimit);
+  }
+
+  @Test
+  public void testTranslateGqlQueryWithException() throws Exception {
+    String gql = "SELECT * from DummyKind";
+    String gqlWithZeroLimit = gql + " LIMIT 0";
+    GqlQuery gqlQueryWithZeroLimit =
+        GqlQuery.newBuilder().setQueryString(gqlWithZeroLimit).setAllowLiterals(true).build();
+    RunQueryRequest gqlRequestWithZeroLimit =
+        makeRequest(gqlQueryWithZeroLimit, V_1_OPTIONS.getNamespace());
+    when(mockDatastore.runQuery(gqlRequestWithZeroLimit))
+        .thenThrow(new RuntimeException("TestException"));
+
+    thrown.expect(RuntimeException.class);
+    thrown.expectMessage("TestException");
+    translateGqlQueryWithLimitCheck(gql, mockDatastore, V_1_OPTIONS.getNamespace());
   }
 
   /** Test options. * */

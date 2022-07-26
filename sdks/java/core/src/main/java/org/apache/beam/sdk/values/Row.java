@@ -43,6 +43,7 @@ import org.apache.beam.sdk.schemas.FieldValueGetter;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
 import org.apache.beam.sdk.schemas.Schema.TypeName;
+import org.apache.beam.sdk.schemas.SchemaUtils;
 import org.apache.beam.sdk.values.RowUtils.CapturingRowCases;
 import org.apache.beam.sdk.values.RowUtils.FieldOverride;
 import org.apache.beam.sdk.values.RowUtils.FieldOverrides;
@@ -86,7 +87,7 @@ import org.joda.time.ReadableInstant;
  */
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
   "rawtypes"
 })
 public abstract class Row implements Serializable {
@@ -105,7 +106,8 @@ public abstract class Row implements Serializable {
   /** Return the size of data fields. */
   public abstract int getFieldCount();
 
-  /** Return the list of data values. */
+  /** Return the list of raw unmodified data values to enable 0-copy code. */
+  @Internal
   public abstract List<Object> getValues();
 
   /** Return a list of data values. Any LogicalType values are returned as base values. * */
@@ -460,7 +462,10 @@ public abstract class Row implements Serializable {
       if (a == null || b == null) {
         return a == b;
       } else if (fieldType.getTypeName() == TypeName.LOGICAL_TYPE) {
-        return deepEquals(a, b, fieldType.getLogicalType().getBaseType());
+        return deepEquals(
+            SchemaUtils.toLogicalBaseType(fieldType.getLogicalType(), a),
+            SchemaUtils.toLogicalBaseType(fieldType.getLogicalType(), b),
+            fieldType.getLogicalType().getBaseType());
       } else if (fieldType.getTypeName() == Schema.TypeName.BYTES) {
         return Arrays.equals((byte[]) a, (byte[]) b);
       } else if (fieldType.getTypeName() == TypeName.ARRAY) {
@@ -598,6 +603,9 @@ public abstract class Row implements Serializable {
   }
 
   private String toString(Schema.FieldType fieldType, Object value, boolean includeFieldNames) {
+    if (value == null) {
+      return "<null>";
+    }
     StringBuilder builder = new StringBuilder();
     switch (fieldType.getTypeName()) {
       case ARRAY:
@@ -732,7 +740,6 @@ public abstract class Row implements Serializable {
   public static class Builder {
     private List<Object> values = Lists.newArrayList();
     private final Schema schema;
-    private Row nullRow;
 
     Builder(Schema schema) {
       this.schema = schema;

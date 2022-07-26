@@ -118,7 +118,7 @@ import org.junit.runners.Parameterized;
 
 /** Tests for AvroIO Read and Write transforms. */
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class AvroIOTest implements Serializable {
   /** Unit tests. */
@@ -224,7 +224,7 @@ public class AvroIOTest implements Serializable {
           return false;
         }
         GenericClass o = (GenericClass) other;
-        return Objects.equals(intField, o.intField) && Objects.equals(stringField, o.stringField);
+        return intField == o.intField && Objects.equals(stringField, o.stringField);
       }
     }
 
@@ -803,7 +803,7 @@ public class AvroIOTest implements Serializable {
           return false;
         }
         GenericClassV2 o = (GenericClassV2) other;
-        return Objects.equals(intField, o.intField)
+        return intField == o.intField
             && Objects.equals(stringField, o.stringField)
             && Objects.equals(nullableField, o.nullableField);
       }

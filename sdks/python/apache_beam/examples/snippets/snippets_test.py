@@ -378,12 +378,12 @@ class TypeHintsTest(unittest.TestCase):
       # [START type_hints_do_fn_annotations]
       from typing import Iterable
 
-      class FilterEvensDoFn(beam.DoFn):
+      class TypedFilterEvensDoFn(beam.DoFn):
         def process(self, element: int) -> Iterable[int]:
           if element % 2 == 0:
             yield element
 
-      evens = numbers | 'filter_evens' >> beam.ParDo(FilterEvensDoFn())
+      evens = numbers | 'filter_evens' >> beam.ParDo(TypedFilterEvensDoFn())
       # [END type_hints_do_fn_annotations]
 
     # Another example, using a list output type. Notice that the output
@@ -759,8 +759,8 @@ class SnippetsTest(unittest.TestCase):
     result_path = temp_path + '.result'
     test_argv = [
         "unused_argv[0]",
-        f"--input-file={temp_path}*",
-        f"--output-path={result_path}",
+        f"--input={temp_path}*",
+        f"--output={result_path}",
     ]
     with mock.patch.object(sys, 'argv', test_argv):
       fn()

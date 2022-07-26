@@ -27,25 +27,35 @@
 # ./gradlew :sdks:python:container:generatePythonRequirementsAll
 # ./gradlew :sdks:python:container:py38:generatePythonRequirements
 
-# You will need Python intepreters for all versions supported by Beam, see:
+# You will need Python interpreters for all versions supported by Beam, see:
 # https://s.apache.org/beam-python-dev-wiki
 
 if [[ $# != 2 ]]; then
-  printf "Usage: \n$> ./sdks/python/container/run_generate_requirements.sh <python_version> <sdk_tarball>"
-  printf "\n\tpython_version: [required] Python version to generate dependencies for."
-  printf " Use 3.7 for Python3.7, 3.8 for Python3.8 etc."
+  printf "Example usage: \n$> ./sdks/python/container/run_generate_requirements.sh 3.8 <sdk_tarball>"
+  printf "\n\twhere 3.8 is the Python major.minor version."
+  exit 1
+fi
+
+PY_VERSION=$1
+SDK_TARBALL=$2
+
+if ! python$PY_VERSION --version > /dev/null 2>&1 ; then
+  echo "Please install a python${PY_VERSION} interpreter. See s.apache.org/beam-python-dev-wiki for Python installation tips."
+  exit 1
+fi
+
+if ! python$PY_VERSION -m venv --help > /dev/null 2>&1 ; then
+  echo "Your python${PY_VERSION} installation does not have a required venv module. See s.apache.org/beam-python-dev-wiki for Python installation tips."
+  exit 1
 fi
 
 set -ex
-PY_VERSION=$1
-SDK_TARBALL=$2
 
 ENV_PATH="$PWD/build/python${PY_VERSION/./}_requirements_gen"
 rm -rf $ENV_PATH 2>/dev/null || true
 python${PY_VERSION} -m venv $ENV_PATH
 source $ENV_PATH/bin/activate
-pip install --upgrade pip
-pip install wheel
+pip install --upgrade pip setuptools wheel
 
 # Install gcp extra deps since these deps are commonly used with Apache Beam.
 # Install dataframe deps to add have Dataframe support in released images.
@@ -81,7 +91,7 @@ cat <<EOT > $REQUIREMENTS_FILE
 # Run ./gradlew :sdks:python:container:generatePythonRequirementsAll to update.
 # Do not edit manually, adjust ../base_image_requirements_manual.txt or
 # Apache Beam's setup.py instead, and regenerate the list.
-# You will need Python intepreters for all versions supported by Beam, see:
+# You will need Python interpreters for all versions supported by Beam, see:
 # https://s.apache.org/beam-python-dev-wiki
 # Reach out to a committer if you need help.
 

@@ -14,49 +14,23 @@
 # limitations under the License.
 
 import mock
+import pytest
 
-from ci_cd import ci_step, cd_step
+from ci_cd import _ci_step, _cd_step, _check_envs
 
 
 @mock.patch("ci_helper.CIHelper.verify_examples")
-@mock.patch("ci_cd.find_examples")
-@mock.patch("ci_cd.get_supported_categories")
-@mock.patch("ci_cd.os.getenv")
-def test_ci_step(
-    mock_os_getenv,
-    mock_get_supported_categories,
-    mock_find_examples,
-    mock_verify_examples):
-  mock_os_getenv.return_value = "MOCK_VALUE"
-  mock_get_supported_categories.return_value = []
-  mock_find_examples.return_value = []
-
-  ci_step()
-
-  mock_os_getenv.assert_has_calls(
-    [mock.call("BEAM_ROOT_DIR"), mock.call("BEAM_EXAMPLE_CATEGORIES")])
-  mock_get_supported_categories.assert_called_once_with("MOCK_VALUE")
-  mock_find_examples.assert_called_once_with("MOCK_VALUE", [])
+def test_ci_step(mock_verify_examples):
+  _ci_step([])
   mock_verify_examples.assert_called_once_with([])
 
 
 @mock.patch("cd_helper.CDHelper.store_examples")
-@mock.patch("ci_cd.find_examples")
-@mock.patch("ci_cd.get_supported_categories")
-@mock.patch("ci_cd.os.getenv")
-def test_cd_step(
-    mock_os_getenv,
-    mock_get_supported_categories,
-    mock_find_examples,
-    mock_store_examples):
-  mock_os_getenv.return_value = "MOCK_VALUE"
-  mock_get_supported_categories.return_value = []
-  mock_find_examples.return_value = []
-
-  cd_step()
-
-  mock_os_getenv.assert_has_calls(
-    [mock.call("BEAM_ROOT_DIR"), mock.call("BEAM_EXAMPLE_CATEGORIES")])
-  mock_get_supported_categories.assert_called_once_with("MOCK_VALUE")
-  mock_find_examples.assert_called_once_with("MOCK_VALUE", [])
+def test_cd_step(mock_store_examples):
+  _cd_step([])
   mock_store_examples.assert_called_once_with([])
+
+
+def test__check_envs():
+  with pytest.raises(KeyError):
+    _check_envs()

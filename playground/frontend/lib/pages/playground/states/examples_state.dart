@@ -17,6 +17,7 @@
  */
 
 import 'package:flutter/material.dart';
+import 'package:playground/constants/params.dart';
 import 'package:playground/modules/examples/models/category_model.dart';
 import 'package:playground/modules/examples/models/example_model.dart';
 import 'package:playground/modules/examples/repositories/example_repository.dart';
@@ -27,13 +28,21 @@ import 'package:playground/modules/sdk/models/sdk.dart';
 class ExampleState with ChangeNotifier {
   final ExampleRepository _exampleRepository;
   Map<SDK, List<CategoryModel>>? sdkCategories;
-  Map<SDK, ExampleModel>? defaultExamplesMap;
+  Map<SDK, ExampleModel> defaultExamplesMap = {};
+  ExampleModel? defaultExample;
   bool isSelectorOpened = false;
 
   ExampleState(this._exampleRepository);
 
   init() {
-    _loadCategories();
+    if (!Uri.base.toString().contains(kIsEmbedded)) {
+      _loadCategories();
+    }
+  }
+
+  setSdkCategories(Map<SDK, List<CategoryModel>> map) {
+    sdkCategories = map;
+    notifyListeners();
   }
 
   List<CategoryModel>? getCategories(SDK sdk) {
@@ -41,33 +50,73 @@ class ExampleState with ChangeNotifier {
   }
 
   Future<String> getExampleOutput(String id, SDK sdk) async {
-    String output = await _exampleRepository.getExampleOutput(
+    return _exampleRepository.getExampleOutput(
       GetExampleRequestWrapper(id, sdk),
     );
-    return output;
   }
 
   Future<String> getExampleSource(String id, SDK sdk) async {
-    String source = await _exampleRepository.getExampleSource(
+    return _exampleRepository.getExampleSource(
       GetExampleRequestWrapper(id, sdk),
     );
-    return source;
+  }
+
+  Future<ExampleModel> getExample(String path, SDK sdk) async {
+    return _exampleRepository.getExample(
+      GetExampleRequestWrapper(path, sdk),
+    );
+  }
+
+  Future<String> getExampleLogs(String id, SDK sdk) async {
+    return _exampleRepository.getExampleLogs(
+      GetExampleRequestWrapper(id, sdk),
+    );
+  }
+
+  Future<String> getExampleGraph(String id, SDK sdk) async {
+    return _exampleRepository.getExampleGraph(
+      GetExampleRequestWrapper(id, sdk),
+    );
   }
 
   Future<ExampleModel> loadExampleInfo(ExampleModel example, SDK sdk) async {
-    String source = await getExampleSource(example.path, sdk);
-    example.setSource(source);
-    final outputs = await getExampleOutput(example.path, sdk);
-    example.setOutputs(outputs);
+    if (example.isInfoFetched()) {
+      return example;
+    }
+
+    //GRPC GetPrecompiledGraph errors hotfix
+    if (example.name == 'MinimalWordCount' &&
+        (sdk == SDK.go || sdk == SDK.scio)) {
+      final exampleData = await Future.wait([
+        getExampleSource(example.path, sdk),
+        getExampleOutput(example.path, sdk),
+        getExampleLogs(example.path, sdk),
+      ]);
+      example.setSource(exampleData[0]);
+      example.setOutputs(exampleData[1]);
+      example.setLogs(exampleData[2]);
+      return example;
+    }
+
+    final exampleData = await Future.wait([
+      getExampleSource(example.path, sdk),
+      getExampleOutput(example.path, sdk),
+      getExampleLogs(example.path, sdk),
+      getExampleGraph(example.path, sdk)
+    ]);
+    example.setSource(exampleData[0]);
+    example.setOutputs(exampleData[1]);
+    example.setLogs(exampleData[2]);
+    example.setGraph(exampleData[3]);
     return example;
   }
 
-  _loadCategories() async {
-    sdkCategories = await _exampleRepository.getListOfExamples(
-      GetListOfExamplesRequestWrapper(sdk: null, category: null),
-    );
-    await _loadDefaultExamples(sdkCategories);
-    notifyListeners();
+  _loadCategories() {
+    _exampleRepository
+        .getListOfExamples(
+          GetListOfExamplesRequestWrapper(sdk: null, category: null),
+        )
+        .then((map) => setSdkCategories(map));
   }
 
   changeSelectorVisibility() {
@@ -75,18 +124,43 @@ class ExampleState with ChangeNotifier {
     notifyListeners();
   }
 
-  _loadDefaultExamples(sdkCategories) async {
-    defaultExamplesMap = {};
-    List<MapEntry<SDK, ExampleModel>> entries = [];
-    for (SDK sdk in SDK.values) {
-      ExampleModel? defaultExample = sdkCategories![sdk]?.first.examples.first;
-      if (defaultExample != null) {
-        // load source and output async
-        loadExampleInfo(defaultExample, sdk);
-        entries.add(MapEntry(sdk, defaultExample));
-      }
+  Future<void> loadDefaultExamples() async {
+    if (defaultExamplesMap.isNotEmpty) {
+      return;
     }
-    defaultExamplesMap?.addEntries(entries);
+
+    List<MapEntry<SDK, ExampleModel>> defaultExamples = [];
+
+    for (var value in SDK.values) {
+      defaultExamples.add(
+        MapEntry(
+          value,
+          await _exampleRepository.getDefaultExample(
+            // First parameter is an empty string, because we don't need path to get the default example.
+            GetExampleRequestWrapper('', value),
+          ),
+        ),
+      );
+    }
+
+    defaultExamplesMap.addEntries(defaultExamples);
+    final futures = <Future<void>>[];
+
+    for (var entry in defaultExamplesMap.entries) {
+      final exampleFuture = loadExampleInfo(entry.value, entry.key)
+          .then((value) => defaultExamplesMap[entry.key] = value);
+      futures.add(exampleFuture);
+    }
     notifyListeners();
+
+    await Future.wait(futures);
+  }
+
+  Future<void> loadDefaultExamplesIfNot() async {
+    if (defaultExamplesMap.isNotEmpty) {
+      return;
+    }
+
+    await loadDefaultExamples();
   }
 }

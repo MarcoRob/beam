@@ -17,6 +17,19 @@
  */
 package org.apache.beam.examples.complete;
 
+// beam-playground:
+//   name: TrafficMaxLaneFlow
+//   description: An example that analyzes traffic sensor data using SlidingWindows. For each
+//     window, it finds the lane that had the highest flow recorded, for each sensor station.
+//     It writes those max values along with auxiliary info to a BigQuery table.
+//   multifile: true
+//   context_line: 92
+//   categories:
+//     - Combiners
+//     - Streaming
+//     - Options
+//     - Windowing
+
 import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableReference;
 import com.google.api.services.bigquery.model.TableRow;
@@ -74,7 +87,7 @@ import org.joda.time.format.DateTimeFormatter;
  * and then exits.
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class TrafficMaxLaneFlow {
 
@@ -383,7 +396,6 @@ public class TrafficMaxLaneFlow {
   public static void main(String[] args) throws IOException {
     TrafficMaxLaneFlowOptions options =
         PipelineOptionsFactory.fromArgs(args).withValidation().as(TrafficMaxLaneFlowOptions.class);
-    options.setBigQuerySchema(FormatMaxesFn.getSchema());
 
     runTrafficMaxLaneFlow(options);
   }

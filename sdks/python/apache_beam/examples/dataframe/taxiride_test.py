@@ -30,14 +30,12 @@ import tempfile
 import unittest
 
 import pandas as pd
-import pytest
 
 import apache_beam as beam
 from apache_beam.examples.dataframe import taxiride
 from apache_beam.testing.util import open_shards
 
 
-@pytest.mark.examples_postcommit
 class TaxiRideExampleTest(unittest.TestCase):
 
   # First 10 lines from gs://apache-beam-samples/nyc_taxi/misc/sample.csv
@@ -90,7 +88,8 @@ class TaxiRideExampleTest(unittest.TestCase):
         beam.Pipeline(), self.input_path, self.output_path)
 
     # Parse result file and compare.
-    # TODO(BEAM-12379): taxiride examples should produce int sums, not floats
+    # TODO(https://github.com/apache/beam/issues/20926): taxiride examples
+    # should produce int sums, not floats
     results = []
     with open_shards(f'{self.output_path}-*') as result_file:
       for line in result_file:

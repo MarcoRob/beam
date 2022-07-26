@@ -189,7 +189,7 @@ def convert_to_beam_type(typ):
     return _type_var_cache[id(typ)]
   elif isinstance(typ, str):
     # Special case for forward references.
-    # TODO(BEAM-8487): Currently unhandled.
+    # TODO(https://github.com/apache/beam/issues/19954): Currently unhandled.
     _LOGGER.info('Converting string literal type hint to Any: "%s"', typ)
     return typehints.Any
   elif getattr(typ, '__module__', None) != 'typing':
@@ -197,9 +197,11 @@ def convert_to_beam_type(typ):
     return typ
 
   type_map = [
-      # TODO(BEAM-9355): Currently unsupported.
+      # TODO(https://github.com/apache/beam/issues/20076): Currently
+      # unsupported.
       _TypeMapEntry(match=is_new_type, arity=0, beam_type=typehints.Any),
-      # TODO(BEAM-8487): Currently unsupported.
+      # TODO(https://github.com/apache/beam/issues/19954): Currently
+      # unsupported.
       _TypeMapEntry(match=is_forward_ref, arity=0, beam_type=typehints.Any),
       _TypeMapEntry(match=is_any, arity=0, beam_type=typehints.Any),
       _TypeMapEntry(
@@ -258,11 +260,11 @@ def convert_to_beam_type(typ):
     elif _match_is_union(typ):
       raise ValueError('Unsupported Union with no arguments.')
     elif _match_issubclass(typing.Generator)(typ):
-      raise ValueError('Unsupported Generator with no arguments.')
+      # Assume a simple generator.
+      args = (typehints.TypeVariable('T_co'), type(None), type(None))
     elif _match_issubclass(typing.Dict)(typ):
       args = (typehints.TypeVariable('KT'), typehints.TypeVariable('VT'))
     elif (_match_issubclass(typing.Iterator)(typ) or
-          _match_issubclass(typing.Generator)(typ) or
           _match_is_exactly_iterable(typ)):
       args = (typehints.TypeVariable('T_co'), )
     else:

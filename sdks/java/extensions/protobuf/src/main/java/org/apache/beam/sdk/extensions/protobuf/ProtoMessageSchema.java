@@ -49,8 +49,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
-  "rawtypes" // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
+  "rawtypes" // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class ProtoMessageSchema extends GetterBasedSchemaProvider {
 
@@ -65,7 +65,8 @@ public class ProtoMessageSchema extends GetterBasedSchemaProvider {
       Multimap<String, Method> methods = ReflectUtils.getMethodsMap(clazz);
       List<FieldValueTypeInformation> types =
           Lists.newArrayListWithCapacity(schema.getFieldCount());
-      for (Field field : schema.getFields()) {
+      for (int i = 0; i < schema.getFieldCount(); ++i) {
+        Field field = schema.getField(i);
         if (field.getType().isLogicalType(OneOfType.IDENTIFIER)) {
           // This is a OneOf. Look for the getters for each OneOf option.
           OneOfType oneOfType = field.getType().getLogicalType(OneOfType.class);
@@ -74,7 +75,7 @@ public class ProtoMessageSchema extends GetterBasedSchemaProvider {
             Method method = getProtoGetter(methods, oneOfField.getName(), oneOfField.getType());
             oneOfTypes.put(
                 oneOfField.getName(),
-                FieldValueTypeInformation.forGetter(method).withName(field.getName()));
+                FieldValueTypeInformation.forGetter(method, i).withName(field.getName()));
           }
           // Add an entry that encapsulates information about all possible getters.
           types.add(
@@ -84,7 +85,7 @@ public class ProtoMessageSchema extends GetterBasedSchemaProvider {
         } else {
           // This is a simple field. Add the getter.
           Method method = getProtoGetter(methods, field.getName(), field.getType());
-          types.add(FieldValueTypeInformation.forGetter(method).withName(field.getName()));
+          types.add(FieldValueTypeInformation.forGetter(method, i).withName(field.getName()));
         }
       }
       return types;
@@ -125,7 +126,7 @@ public class ProtoMessageSchema extends GetterBasedSchemaProvider {
 
   // Other modules are not allowed to use non-vendored Message class
   @SuppressWarnings({
-    "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+    "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
     "unchecked"
   })
   public static <T> SimpleFunction<byte[], Row> getProtoBytesToRowFn(Class<T> clazz) {
@@ -139,7 +140,7 @@ public class ProtoMessageSchema extends GetterBasedSchemaProvider {
 
   // Other modules are not allowed to use non-vendored Message class
   @SuppressWarnings({
-    "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+    "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
     "unchecked"
   })
   public static <T> SimpleFunction<Row, byte[]> getRowToProtoBytesFn(Class<T> clazz) {

@@ -209,7 +209,7 @@ Do NOT do this:
 {{< /highlight >}}
 ```
 
-In some circumstances, the Hugo markdown parser will generate a pair of empty `<p>` tags for the extra return, and that breaks the formatting of the code tabs. TODO: Fix this issue: [BEAM-12688](https://issues.apache.org/jira/browse/BEAM-12688).
+In some circumstances, the Hugo markdown parser will generate a pair of empty `<p>` tags for the extra return, and that breaks the formatting of the code tabs. TODO: Fix this issue: [Issue 21030](https://github.com/apache/beam/issues/21030).
 
 ### Code highlighting
 
@@ -246,6 +246,7 @@ Render:
 ```
 
 The purpose of adding classes or programming languages (java, py or go) in code highlighting is to activate the language switching feature.
+If you want highlighting for a code block that should *not* be affected by language switching - that is, if you want to a highlight a code block, and you don't want the block to go away when a different language is selected - use ` ``` `. For example: ` ```java // Java code here...``` `.
 
 ### Adding class to markdown text
 

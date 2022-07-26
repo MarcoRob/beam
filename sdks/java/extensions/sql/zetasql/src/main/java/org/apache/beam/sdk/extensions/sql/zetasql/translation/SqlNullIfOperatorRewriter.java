@@ -34,7 +34,7 @@ import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Immutabl
  *   END</pre></code>
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 class SqlNullIfOperatorRewriter implements SqlOperatorRewriter {
   @Override
@@ -43,7 +43,9 @@ class SqlNullIfOperatorRewriter implements SqlOperatorRewriter {
         operands.size() == 2, "NULLIF should have two arguments in function call.");
 
     SqlOperator op =
-        SqlOperatorMappingTable.ZETASQL_FUNCTION_TO_CALCITE_SQL_OPERATOR.get("$case_no_value");
+        SqlOperatorMappingTable.ZETASQL_FUNCTION_TO_CALCITE_SQL_OPERATOR
+            .get("$case_no_value")
+            .apply(null);
     List<RexNode> newOperands =
         ImmutableList.of(
             rexBuilder.makeCall(

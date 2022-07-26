@@ -19,6 +19,7 @@
 
 # pytype: skip-file
 
+import importlib
 import json
 import logging
 import os
@@ -48,8 +49,27 @@ _LOGGER = logging.getLogger(__name__)
 _ENABLE_GOOGLE_CLOUD_PROFILER = 'enable_google_cloud_profiler'
 
 
+def _import_beam_plugins(plugins):
+  for plugin in plugins:
+    try:
+      importlib.import_module(plugin)
+      _LOGGER.info('Imported beam-plugin %s', plugin)
+    except ImportError:
+      try:
+        _LOGGER.debug((
+            "Looks like %s is not a module. "
+            "Trying to import it assuming it's a class"),
+                      plugin)
+        module, _ = plugin.rsplit('.', 1)
+        importlib.import_module(module)
+        _LOGGER.info('Imported %s for beam-plugin %s', module, plugin)
+      except ImportError as exc:
+        _LOGGER.warning('Failed to import beam-plugin %s', plugin, exc_info=exc)
+
+
 def create_harness(environment, dry_run=False):
   """Creates SDK Fn Harness."""
+
   if 'LOGGING_API_SERVICE_DESCRIPTOR' in environment:
     try:
       logging_service_descriptor = endpoints_pb2.ApiServiceDescriptor()
@@ -59,8 +79,6 @@ def create_harness(environment, dry_run=False):
 
       # Send all logs to the runner.
       fn_log_handler = FnApiLogRecordHandler(logging_service_descriptor)
-      # TODO(BEAM-5468): This should be picked up from pipeline options.
-      logging.getLogger().setLevel(logging.INFO)
       logging.getLogger().addHandler(fn_log_handler)
       _LOGGER.info('Logging handler created.')
     except Exception:
@@ -73,11 +91,16 @@ def create_harness(environment, dry_run=False):
 
   pipeline_options_dict = _load_pipeline_options(
       environment.get('PIPELINE_OPTIONS'))
+  default_log_level = _get_log_level_from_options_dict(pipeline_options_dict)
+  logging.getLogger().setLevel(default_log_level)
+  _set_log_level_overrides(pipeline_options_dict)
+
   # These are used for dataflow templates.
   RuntimeValueProvider.set_runtime_options(pipeline_options_dict)
   sdk_pipeline_options = PipelineOptions.from_dictionary(pipeline_options_dict)
   filesystems.FileSystems.set_options(sdk_pipeline_options)
-  pickler.set_library(sdk_pipeline_options.view_as(SetupOptions).pickle_library)
+  pickle_library = sdk_pipeline_options.view_as(SetupOptions).pickle_library
+  pickler.set_library(pickle_library)
 
   if 'SEMI_PERSISTENT_DIRECTORY' in environment:
     semi_persistent_directory = environment['SEMI_PERSISTENT_DIRECTORY']
@@ -87,17 +110,18 @@ def create_harness(environment, dry_run=False):
   _LOGGER.info('semi_persistent_directory: %s', semi_persistent_directory)
   _worker_id = environment.get('WORKER_ID', None)
 
-  try:
-    _load_main_session(semi_persistent_directory)
-  except CorruptMainSessionException:
-    exception_details = traceback.format_exc()
-    _LOGGER.error(
-        'Could not load main session: %s', exception_details, exc_info=True)
-    raise
-  except Exception:  # pylint: disable=broad-except
-    exception_details = traceback.format_exc()
-    _LOGGER.error(
-        'Could not load main session: %s', exception_details, exc_info=True)
+  if pickle_library != pickler.USE_CLOUDPICKLE:
+    try:
+      _load_main_session(semi_persistent_directory)
+    except CorruptMainSessionException:
+      exception_details = traceback.format_exc()
+      _LOGGER.error(
+          'Could not load main session: %s', exception_details, exc_info=True)
+      raise
+    except Exception:  # pylint: disable=broad-except
+      exception_details = traceback.format_exc()
+      _LOGGER.error(
+          'Could not load main session: %s', exception_details, exc_info=True)
 
   _LOGGER.info(
       'Pipeline_options: %s',
@@ -114,6 +138,10 @@ def create_harness(environment, dry_run=False):
 
   experiments = sdk_pipeline_options.view_as(DebugOptions).experiments or []
   enable_heap_dump = 'enable_heap_dump' in experiments
+
+  beam_plugins = sdk_pipeline_options.view_as(SetupOptions).beam_plugins or []
+  _import_beam_plugins(beam_plugins)
+
   if dry_run:
     return
   sdk_harness = SdkHarness(
@@ -211,7 +239,7 @@ def _get_data_buffer_time_limit_ms(experiments):
   not be available in future releases.
 
   Returns:
-    an int indicating the time limit in milliseconds of the the outbound
+    an int indicating the time limit in milliseconds of the outbound
       data buffering. Default is 0 (disabled)
   """
 
@@ -223,6 +251,58 @@ def _get_data_buffer_time_limit_ms(experiments):
               r'data_buffer_time_limit_ms=(?P<data_buffer_time_limit_ms>.*)',
               experiment).group('data_buffer_time_limit_ms'))
   return 0
+
+
+def _get_log_level_from_options_dict(options_dict: dict) -> int:
+  """Get log level from options dict's entry `default_sdk_harness_log_level`.
+  If not specified, default log level is logging.INFO.
+  """
+  dict_level = options_dict.get('default_sdk_harness_log_level', 'INFO')
+  log_level = dict_level
+  if log_level.isdecimal():
+    log_level = int(log_level)
+  else:
+    # labeled log level
+    log_level = getattr(logging, log_level, None)
+    if not isinstance(log_level, int):
+      # unknown log level.
+      _LOGGER.error("Unknown log level %s. Use default value INFO.", dict_level)
+      log_level = logging.INFO
+
+  return log_level
+
+
+def _set_log_level_overrides(options_dict: dict) -> None:
+  """Set module log level overrides from options dict's entry
+  `sdk_harness_log_level_overrides`.
+  """
+  option_raw = options_dict.get('sdk_harness_log_level_overrides', None)
+
+  if option_raw is None:
+    return
+
+  parsed_overrides = {}
+
+  try:
+    # parsing and flatten the appended option
+    deserialized = [json.loads(line) for line in option_raw]
+    for line in deserialized:
+      parsed_overrides.update(line)
+  except Exception:
+    _LOGGER.error(
+        "Unable to parse sdk_harness_log_level_overrides %s. "
+        "Log level overrides won't take effect.",
+        option_raw)
+    return
+
+  for module_name, log_level in parsed_overrides.items():
+    try:
+      logging.getLogger(module_name).setLevel(log_level)
+    except Exception as e:
+      # Never crash the worker when exception occurs during log level setting
+      # but logging the error.
+      _LOGGER.error(
+          "Error occurred when setting log level for %s: %s", module_name, e)
 
 
 class CorruptMainSessionException(Exception):

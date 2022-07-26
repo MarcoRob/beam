@@ -16,9 +16,25 @@
 package cloud_bucket
 
 import (
+	pb "beam.apache.org/playground/backend/internal/api/v1"
+	"context"
 	"reflect"
 	"testing"
 )
+
+const (
+	precompiledObjectPath = "SDK_JAVA/PRECOMPILED_OBJECT_TYPE_EXAMPLE/MinimalWordCount"
+	targetSdk             = pb.Sdk_SDK_UNSPECIFIED
+	defaultBucketName     = "playground-precompiled-objects"
+)
+
+var bucket *CloudStorage
+var ctx context.Context
+
+func init() {
+	bucket = New()
+	ctx = context.Background()
+}
 
 func Test_getFullFilePath(t *testing.T) {
 	type args struct {
@@ -116,12 +132,12 @@ func Test_isPathToPrecompiledObjectFile(t *testing.T) {
 	}{
 		{
 			name: "Test if path is valid",
-			args: args{path: "SDK_JAVA/HelloWorld/HelloWorld.java"},
+			args: args{path: "SDK_JAVA/PRECOMPILED_OBJECT_TYPE_EXAMPLE/HelloWorld/HelloWorld.java"},
 			want: true,
 		},
 		{
 			name: "Test if path is not valid",
-			args: args{path: "SDK_JAVA/HelloWorld/"},
+			args: args{path: "SDK_JAVA/PRECOMPILED_OBJECT_TYPE_EXAMPLE/HelloWorld/"},
 			want: false,
 		},
 	}
@@ -150,22 +166,24 @@ func Test_appendPrecompiledObject(t *testing.T) {
 			name: "Test append new objects",
 			args: args{
 				objectInfo: ObjectInfo{
-					Name:        "",
-					CloudPath:   "",
-					Description: "",
-					Type:        0,
-					Categories:  []string{"Common"},
+					Name:            "",
+					CloudPath:       "",
+					Description:     "",
+					Type:            0,
+					Categories:      []string{"Common"},
+					PipelineOptions: "",
 				},
 				sdkToCategories: &SdkToCategories{},
 				pathToObject:    "SDK_JAVA/HelloWorld",
 				categoryName:    "Common",
 			},
 			want: &SdkToCategories{"SDK_JAVA": CategoryToPrecompiledObjects{"Common": PrecompiledObjects{ObjectInfo{
-				Name:        "HelloWorld",
-				CloudPath:   "SDK_JAVA/HelloWorld",
-				Description: "",
-				Type:        0,
-				Categories:  []string{"Common"},
+				Name:            "HelloWorld",
+				CloudPath:       "SDK_JAVA/HelloWorld",
+				Description:     "",
+				Type:            0,
+				Categories:      []string{"Common"},
+				PipelineOptions: "",
 			}}}},
 		},
 	}
@@ -193,7 +211,7 @@ func Test_getFileExtensionBySdk(t *testing.T) {
 		{
 			// Try to get an extension of a file by the sdk at file path:
 			// SDK_JAVA/HelloWorld -> java
-			name: "Test getFileExtensionBySdk() valid sdk",
+			name:    "Test getFileExtensionBySdk() valid sdk",
 			args:    args{precompiledObjectPath: "SDK_JAVA/HelloWorld"},
 			want:    "java",
 			wantErr: false,
@@ -201,7 +219,7 @@ func Test_getFileExtensionBySdk(t *testing.T) {
 		{
 			// Try to get an error if sdk is not a valid one:
 			// INVALID_SDK/HelloWorld -> ""
-			name: "Test getFileExtensionBySdk() invalid sdk",
+			name:    "Test getFileExtensionBySdk() invalid sdk",
 			args:    args{precompiledObjectPath: "INVALID_SDK/HelloWorld"},
 			want:    "",
 			wantErr: true,
@@ -218,5 +236,29 @@ func Test_getFileExtensionBySdk(t *testing.T) {
 				t.Errorf("getFileExtensionBySdk() got = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Benchmark_GetPrecompiledObjects(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, _ = bucket.GetPrecompiledObjects(ctx, targetSdk, "", defaultBucketName)
+	}
+}
+
+func Benchmark_GetPrecompiledObjectOutput(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, _ = bucket.GetPrecompiledObjectOutput(ctx, precompiledObjectPath, defaultBucketName)
+	}
+}
+
+func Benchmark_GetPrecompiledObjectCode(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, _ = bucket.GetPrecompiledObjectCode(ctx, precompiledObjectPath, defaultBucketName)
+	}
+}
+
+func Benchmark_GetPrecompiledObject(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, _ = bucket.GetPrecompiledObject(ctx, precompiledObjectPath, defaultBucketName)
 	}
 }

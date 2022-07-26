@@ -35,8 +35,8 @@ import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.fn.test.TestExecutors;
 import org.apache.beam.sdk.fn.test.TestExecutors.TestExecutorService;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
+import org.apache.beam.sdk.util.ByteStringOutputStream;
 import org.apache.beam.sdk.util.WindowedValue;
-import org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.ByteString;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -147,8 +147,7 @@ public class BeamFnDataInboundObserver2Test {
             () -> {
               observer.accept(dataWith("ABC"));
               assertThrows(
-                  "Inbound observer closed",
-                  IllegalStateException.class,
+                  BeamFnDataInboundObserver2.CloseException.class,
                   () -> {
                     while (true) {
                       // keep trying to send messages since the queue buffers messages and the
@@ -166,8 +165,7 @@ public class BeamFnDataInboundObserver2Test {
               return null;
             });
 
-    assertThrows(
-        "Inbound observer closed", IllegalStateException.class, () -> observer.awaitCompletion());
+    assertThrows(BeamFnDataInboundObserver2.CloseException.class, () -> observer.awaitCompletion());
     future.get();
     future2.get();
   }
@@ -205,7 +203,7 @@ public class BeamFnDataInboundObserver2Test {
   }
 
   private BeamFnApi.Elements dataWith(String... values) throws Exception {
-    ByteString.Output output = ByteString.newOutput();
+    ByteStringOutputStream output = new ByteStringOutputStream();
     for (String value : values) {
       CODER.encode(valueInGlobalWindow(value), output);
     }
@@ -224,7 +222,7 @@ public class BeamFnDataInboundObserver2Test {
   }
 
   private BeamFnApi.Elements timerWith(String... values) throws Exception {
-    ByteString.Output output = ByteString.newOutput();
+    ByteStringOutputStream output = new ByteStringOutputStream();
     for (String value : values) {
       CODER.encode(valueInGlobalWindow(value), output);
     }

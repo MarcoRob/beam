@@ -46,7 +46,7 @@ nums.each {
         defaultNodes([machine])
         allowedNodes([machine])
         trigger('multiSelectionDisallowed')
-        eligibility('IgnoreOfflineNodeEligibility')
+        eligibility('AllNodeEligibility')
       }
       stringParam {
         name("tmp_unaccessed_for")
@@ -64,8 +64,6 @@ nums.each {
       ALL_SUPPORTED_VERSIONS.each { version ->
         shell("python${version} --version || echo \"python${version} not found\"")
       }
-      shell('/home/jenkins/tools/maven/latest/mvn -v || echo "mvn not found"')
-      shell('/home/jenkins/tools/gradle4.3/gradle -v || echo "gradle not found"')
       shell('gcloud -v || echo "gcloud not found"')
       shell('kubectl version || echo "kubectl not found"')
       ALL_SUPPORTED_VERSIONS.each { version ->

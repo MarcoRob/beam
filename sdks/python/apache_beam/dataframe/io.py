@@ -72,7 +72,7 @@ def read_csv(path, *args, splittable=False, **kwargs):
       args,
       kwargs,
       incremental=True,
-      splitter=_CsvSplitter(args, kwargs) if splittable else None)
+      splitter=_TextFileSplitter(args, kwargs) if splittable else None)
 
 
 def _as_pc(df, label=None):
@@ -93,7 +93,14 @@ def to_csv(df, path, transform_label=None, *args, **kwargs):
 
 @frame_base.with_docs_from(pd)
 def read_fwf(path, *args, **kwargs):
-  return _ReadFromPandas(pd.read_fwf, path, args, kwargs, incremental=True)
+  return _ReadFromPandas(
+      pd.read_fwf,
+      path,
+      args,
+      kwargs,
+      incremental=True,
+      binary=False,
+      splitter=_TextFileSplitter(args, kwargs))
 
 
 @frame_base.with_docs_from(pd)
@@ -239,8 +246,8 @@ class _ReadFromPandas(beam.PTransform):
     paths_pcoll = root | beam.Create([self.path])
     match = io.filesystems.FileSystems.match([self.path], limits=[1])[0]
     if not match.metadata_list:
-      # TODO(BEAM-12031): This should be allowed for streaming pipelines if
-      # user provides an explicit schema.
+      # TODO(https://github.com/apache/beam/issues/20858): This should be
+      # allowed for streaming pipelines if user provides an explicit schema.
       raise FileNotFoundError(f"Found no files that match {self.path!r}")
     first_path = match.metadata_list[0].path
     with io.filesystems.FileSystems.open(first_path) as handle:
@@ -350,7 +357,7 @@ def _maybe_encode(str_or_bytes):
     return str_or_bytes
 
 
-class _CsvSplitter(_DelimSplitter):
+class _TextFileSplitter(_DelimSplitter):
   """Splitter for dynamically sharding CSV files and newline record boundaries.
 
   Currently does not handle quoted newlines, so is off by default, but such
@@ -442,6 +449,7 @@ class _TruncatingFileHandle(object):
     self._done = False
     self._header, self._buffer = self._splitter.read_header(self._underlying)
     self._buffer_start_pos = len(self._header)
+    self._iterator = None
     start = self._tracker.current_restriction().start
     # Seek to first delimiter after the start position.
     if start > len(self._header):
@@ -471,9 +479,40 @@ class _TruncatingFileHandle(object):
 
   def __iter__(self):
     # For pandas is_file_like.
-    raise NotImplementedError()
+    return self
+
+  def __next__(self):
+    if self._iterator is None:
+      self._iterator = self._line_iterator()
+    return next(self._iterator)
+
+  def readline(self):
+    # This attribute is checked, but unused, by pandas.
+    return next(self)
+
+  def _line_iterator(self):
+    line_start = 0
+    chunk = self._read()
+    while True:
+      line_end = chunk.find(self._splitter._delim, line_start)
+      while line_end == -1:
+        more = self._read()
+        if not more:
+          if line_start < len(chunk):
+            yield chunk[line_start:]
+          return
+        chunk = chunk[line_start:] + more
+        line_start = 0
+        line_end = chunk.find(self._splitter._delim, line_start)
+      yield chunk[line_start:line_end + 1]
+      line_start = line_end + 1
 
   def read(self, size=-1):
+    if self._iterator:
+      raise NotImplementedError('Cannot call read after iterating.')
+    return self._read(size)
+
+  def _read(self, size=-1):
     if self._header:
       res = self._header
       self._header = None
@@ -679,3 +718,41 @@ class _WriteToPandasFileSink(fileio.FileSink):
     if self.buffer:
       self.write_to(pd.concat(self.buffer), self.file_handle)
       self.file_handle.flush()
+
+
+class ReadViaPandas(beam.PTransform):
+  def __init__(
+      self,
+      format,
+      *args,
+      include_indexes=False,
+      objects_as_strings=True,
+      **kwargs):
+    self._reader = globals()['read_%s' % format](*args, **kwargs)
+    self._include_indexes = include_indexes
+    self._objects_as_strings = objects_as_strings
+
+  def expand(self, p):
+    from apache_beam.dataframe import convert  # avoid circular import
+    df = p | self._reader
+    if self._objects_as_strings:
+      for col, t in zip(df.columns, df.dtypes):
+        if t == object:
+          df[col] = df[col].astype(pd.StringDtype())
+    return convert.to_pcollection(df, include_indexes=self._include_indexes)
+
+
+class WriteViaPandas(beam.PTransform):
+  def __init__(self, format, *args, **kwargs):
+    self._writer_func = globals()['to_%s' % format]
+    self._args = args
+    self._kwargs = kwargs
+
+  def expand(self, pcoll):
+    from apache_beam.dataframe import convert  # avoid circular import
+    return {
+        'files_written': self._writer_func(
+            convert.to_dataframe(pcoll), *self._args, **self._kwargs)
+        | beam.Map(lambda file_result: file_result.file_name).with_output_types(
+            str)
+    }

@@ -158,7 +158,7 @@ import org.slf4j.LoggerFactory;
  */
 @Experimental(Kind.SOURCE_SINK)
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class HBaseIO {
   private static final Logger LOG = LoggerFactory.getLogger(HBaseIO.class);
@@ -716,7 +716,6 @@ public class HBaseIO {
       HBaseWriterFn(Write write) {
         checkNotNull(write.tableId, "tableId");
         checkNotNull(write.configuration, "configuration");
-        this.write = write;
       }
 
       @Setup
@@ -760,7 +759,6 @@ public class HBaseIO {
         builder.delegate(Write.this);
       }
 
-      private final Write write;
       private long recordsWritten;
 
       private transient Connection connection;

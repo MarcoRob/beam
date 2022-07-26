@@ -92,8 +92,8 @@ import org.slf4j.LoggerFactory;
  */
 @ThreadSafe
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class DefaultJobBundleFactory implements JobBundleFactory {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultJobBundleFactory.class);
@@ -204,11 +204,11 @@ public class DefaultJobBundleFactory implements JobBundleFactory {
                   notification -> {
                     WrappedSdkHarnessClient client = notification.getValue();
                     final int refCount;
+                    // We need to use a lock here to ensure we are not causing the environment to
+                    // be removed if beforehand a StageBundleFactory has retrieved it but not yet
+                    // issued ref() on it.
+                    refLock.lock();
                     try {
-                      // We need to use a lock here to ensure we are not causing the environment to
-                      // be removed if beforehand a StageBundleFactory has retrieved it but not yet
-                      // issued ref() on it.
-                      refLock.lock();
                       refCount = client.unref();
                     } finally {
                       refLock.unlock();
@@ -437,7 +437,7 @@ public class DefaultJobBundleFactory implements JobBundleFactory {
 
     private final ExecutableStage executableStage;
     private final int environmentIndex;
-    private final Map<WrappedSdkHarnessClient, PreparedClient> preparedClients =
+    private final IdentityHashMap<WrappedSdkHarnessClient, PreparedClient> preparedClients =
         new IdentityHashMap<>();
     private volatile PreparedClient currentClient;
 
@@ -474,8 +474,8 @@ public class DefaultJobBundleFactory implements JobBundleFactory {
         currentCache = availableCaches.take();
         // Lock because the environment expiration can remove the ref for the client
         // which would close the underlying environment before we can ref it.
+        currentCache.lock.lock();
         try {
-          currentCache.lock.lock();
           client = currentCache.cache.getUnchecked(executableStage.getEnvironment());
           client.ref();
         } finally {
@@ -494,8 +494,8 @@ public class DefaultJobBundleFactory implements JobBundleFactory {
         currentCache = environmentCaches.get(environmentIndex);
         // Lock because the environment expiration can remove the ref for the client which would
         // close the underlying environment before we can ref it.
+        currentCache.lock.lock();
         try {
-          currentCache.lock.lock();
           client = currentCache.cache.getUnchecked(executableStage.getEnvironment());
           client.ref();
         } finally {

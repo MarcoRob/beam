@@ -22,10 +22,13 @@ import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Prec
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.ByteString;
+import org.apache.beam.sdk.util.ByteStringOutputStream;
+import org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.ByteString;
 
 /**
  * {@link DataStreamDecoder} treats multiple {@link ByteString}s as a single input stream decoding
@@ -33,8 +36,8 @@ import org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.ByteString;
  * OutputStream} as multiple {@link ByteString}s.
  */
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class DataStreams {
   public static final int DEFAULT_OUTBOUND_BUFFER_LIMIT_BYTES = 1_000_000;
@@ -78,7 +81,7 @@ public class DataStreams {
    */
   public static final class ElementDelimitedOutputStream extends OutputStream {
     private final OutputChunkConsumer<ByteString> consumer;
-    private final ByteString.Output output;
+    private final ByteStringOutputStream output;
     private final int maximumChunkSize;
     int previousPosition;
 
@@ -86,7 +89,7 @@ public class DataStreams {
         OutputChunkConsumer<ByteString> consumer, int maximumChunkSize) {
       this.consumer = consumer;
       this.maximumChunkSize = maximumChunkSize;
-      this.output = ByteString.newOutput(maximumChunkSize);
+      this.output = new ByteStringOutputStream(maximumChunkSize);
     }
 
     public void delimitElement() throws IOException {
@@ -137,8 +140,7 @@ public class DataStreams {
 
     /** Can only be called if at least one byte has been written. */
     private void internalFlush() throws IOException {
-      consumer.read(output.toByteString());
-      output.reset();
+      consumer.read(output.toByteStringAndReset());
       // Set the previous position to an invalid position representing that a previous buffer
       // was written to.
       previousPosition = -1;
@@ -179,6 +181,26 @@ public class DataStreams {
       this.inbound = new Inbound();
     }
 
+    /**
+     * Skips any remaining bytes in the current {@link ByteString} moving to the next {@link
+     * ByteString} in the underlying {@link ByteString} {@link Iterator iterator} and decoding
+     * elements till at the next boundary.
+     */
+    public List<T> decodeFromChunkBoundaryToChunkBoundary() {
+      inbound.currentStream = inputByteStrings.next().newInput();
+      inbound.position = 0;
+      try {
+        InputStream previousStream = inbound.currentStream;
+        List<T> rvals = new ArrayList<>();
+        while (previousStream == inbound.currentStream && inbound.currentStream.available() != 0) {
+          rvals.add(next());
+        }
+        return rvals;
+      } catch (IOException e) {
+        throw new IllegalStateException(e);
+      }
+    }
+
     @Override
     public boolean isReady() {
       try {
@@ -212,9 +234,10 @@ public class DataStreams {
 
       try {
         long previousPosition = inbound.position;
+        InputStream previousStream = inbound.currentStream;
         T next = coder.decode(inbound);
         // Skip one byte if decoding the value consumed 0 bytes.
-        if (inbound.position - previousPosition == 0) {
+        if (previousPosition == inbound.position && previousStream == inbound.currentStream) {
           checkState(inbound.read() != -1, "Unexpected EOF reached");
         }
         return next;
@@ -237,7 +260,7 @@ public class DataStreams {
      * <p>Closing this input stream has no effect.
      */
     private class Inbound extends InputStream {
-      private long position;
+      private int position; // Position within the current input stream.
       private InputStream currentStream;
 
       public Inbound() {
@@ -256,6 +279,7 @@ public class DataStreams {
             return true;
           }
           currentStream = inputByteStrings.next().newInput();
+          position = 0;
         }
         return true;
       }
@@ -269,6 +293,7 @@ public class DataStreams {
             return true;
           }
           currentStream = inputByteStrings.next().newInput();
+          position = 0;
         }
         return false;
       }
@@ -282,6 +307,7 @@ public class DataStreams {
             return -1;
           }
           currentStream = inputByteStrings.next().newInput();
+          position = 0;
         }
         position += 1;
         return read;
@@ -302,6 +328,7 @@ public class DataStreams {
               return bytesRead > 0 ? bytesRead : -1;
             }
             currentStream = inputByteStrings.next().newInput();
+            position = 0;
           }
           remainingLen -= read;
         }

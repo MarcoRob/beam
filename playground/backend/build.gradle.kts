@@ -40,16 +40,72 @@ task("tidy") {
   }
 }
 
-task("test") {
+val startDatastoreEmulator by tasks.registering {
+    doFirst {
+        val process = ProcessBuilder()
+            .directory(projectDir)
+            .inheritIO()
+            .command("sh", "start_datastore_emulator.sh")
+            .start()
+            .waitFor()
+        if (process == 0) {
+            println("Datastore emulator started")
+        } else {
+            println("Failed to start datastore emulator")
+        }
+    }
+}
+
+val stopDatastoreEmulator by tasks.registering {
+    doLast {
+        exec {
+            executable("sh")
+            args("stop_datastore_emulator.sh")
+        }
+    }
+}
+
+val test by tasks.registering {
+    group = "verification"
+    description = "Test the backend"
+    doLast {
+        exec {
+            executable("go")
+            args("test", "./...")
+        }
+    }
+}
+
+test { dependsOn(startDatastoreEmulator) }
+test { finalizedBy(stopDatastoreEmulator) }
+
+task("benchmarkPrecompiledObjects") {
   group = "verification"
-  description = "Test the backend"
+  description = "Run benchmarks for precompiled objects"
   doLast {
     exec {
       executable("go")
-      args("test", "internal/...")
+      args("test", "-bench", ".", "-benchmem", "./internal/cloud_bucket/...")
     }
   }
 }
+
+task("benchmarkCodeProcessing") {
+  group = "verification"
+  description = "Run benchmarks for code processing"
+  doLast {
+    exec {
+      executable("go")
+      args("test", "-run=^$", "-bench", ".", "-benchmem", "./internal/code_processing/...")
+    }
+  }
+}
+
+task("benchmark") {
+  dependsOn(":playground:backend:benchmarkPrecompiledObjects")
+  dependsOn(":playground:backend:benchmarkCodeProcessing")
+}
+
 
 task("installLinter") {
   doLast {
@@ -69,9 +125,11 @@ task("runLint") {
     }
   }
 }
+
 task("precommit") {
   dependsOn(":playground:backend:runLint")
   dependsOn(":playground:backend:tidy")
   dependsOn(":playground:backend:test")
+  dependsOn(":playground:backend:benchmark")
 }
 

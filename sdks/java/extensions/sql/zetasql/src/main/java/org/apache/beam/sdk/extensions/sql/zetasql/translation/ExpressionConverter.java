@@ -97,7 +97,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 @Internal
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class ExpressionConverter {
 
@@ -609,7 +609,7 @@ public class ExpressionConverter {
       Map<String, RexNode> outerFunctionArguments) {
     final String funGroup = functionCall.getFunction().getGroup();
     final String funName = functionCall.getFunction().getName();
-    SqlOperator op = SqlOperatorMappingTable.ZETASQL_FUNCTION_TO_CALCITE_SQL_OPERATOR.get(funName);
+    SqlOperator op = SqlOperatorMappingTable.create(functionCall);
     List<RexNode> operands = new ArrayList<>();
 
     if (PRE_DEFINED_WINDOW_FUNCTIONS.equals(funGroup)) {

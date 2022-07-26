@@ -17,19 +17,22 @@
  */
 package org.apache.beam.fn.harness;
 
+import static java.util.Arrays.asList;
 import static org.apache.beam.sdk.options.ExperimentalOptions.addExperiment;
 import static org.apache.beam.sdk.util.WindowedValue.timestampedValueInGlobalWindow;
 import static org.apache.beam.sdk.util.WindowedValue.valueInGlobalWindow;
 import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -38,6 +41,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -49,15 +53,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.apache.beam.fn.harness.FnApiDoFnRunner.SplitResultsWithStopIndex;
 import org.apache.beam.fn.harness.FnApiDoFnRunner.WindowedSplitResult;
 import org.apache.beam.fn.harness.HandlesSplits.SplitResult;
+import org.apache.beam.fn.harness.control.BundleProgressReporter;
 import org.apache.beam.fn.harness.control.BundleSplitListener;
-import org.apache.beam.fn.harness.data.FakeBeamFnTimerClient;
 import org.apache.beam.fn.harness.state.FakeBeamFnStateClient;
 import org.apache.beam.model.fnexecution.v1.BeamFnApi.BundleApplication;
 import org.apache.beam.model.fnexecution.v1.BeamFnApi.DelayedBundleApplication;
 import org.apache.beam.model.fnexecution.v1.BeamFnApi.StateKey;
+import org.apache.beam.model.pipeline.v1.Endpoints.ApiServiceDescriptor;
 import org.apache.beam.model.pipeline.v1.MetricsApi.MonitoringInfo;
 import org.apache.beam.model.pipeline.v1.RunnerApi;
 import org.apache.beam.model.pipeline.v1.RunnerApi.Environment;
@@ -76,6 +82,7 @@ import org.apache.beam.runners.core.metrics.MetricsContainerImpl;
 import org.apache.beam.runners.core.metrics.MetricsContainerStepMap;
 import org.apache.beam.runners.core.metrics.MonitoringInfoConstants;
 import org.apache.beam.runners.core.metrics.MonitoringInfoConstants.Urns;
+import org.apache.beam.runners.core.metrics.ShortIdMap;
 import org.apache.beam.runners.core.metrics.SimpleMonitoringInfoBuilder;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.Coder;
@@ -85,6 +92,7 @@ import org.apache.beam.sdk.coders.IterableCoder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VoidCoder;
+import org.apache.beam.sdk.fn.data.BeamFnDataOutboundAggregator;
 import org.apache.beam.sdk.fn.data.FnDataReceiver;
 import org.apache.beam.sdk.fn.data.LogicalEndpoint;
 import org.apache.beam.sdk.io.range.OffsetRange;
@@ -92,9 +100,9 @@ import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.MetricKey;
 import org.apache.beam.sdk.metrics.MetricName;
 import org.apache.beam.sdk.metrics.Metrics;
-import org.apache.beam.sdk.metrics.MetricsContainer;
 import org.apache.beam.sdk.metrics.MetricsEnvironment;
 import org.apache.beam.sdk.options.ExperimentalOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.state.BagState;
 import org.apache.beam.sdk.state.CombiningState;
 import org.apache.beam.sdk.state.StateSpec;
@@ -124,7 +132,9 @@ import org.apache.beam.sdk.transforms.windowing.IntervalWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.transforms.windowing.SlidingWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.util.ByteStringOutputStream;
 import org.apache.beam.sdk.util.CoderUtils;
+import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -132,14 +142,15 @@ import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TupleTagList;
-import org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.ByteString;
-import org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.util.Durations;
+import org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.ByteString;
+import org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.util.Durations;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Iterables;
 import org.hamcrest.collection.IsMapContaining;
 import org.joda.time.Duration;
 import org.joda.time.Instant;
+import org.joda.time.format.PeriodFormat;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -152,7 +163,10 @@ import org.junit.runners.JUnit4;
 /** Tests for {@link FnApiDoFnRunner}. */
 @RunWith(Enclosed.class)
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
+  // TODO(https://github.com/apache/beam/issues/21230): Remove when new version of
+  // errorprone is released (2.11.0)
+  "unused"
 })
 public class FnApiDoFnRunnerTest implements Serializable {
 
@@ -189,8 +203,6 @@ public class FnApiDoFnRunnerTest implements Serializable {
     }
 
     private static class TestStatefulDoFn extends DoFn<KV<String, String>, String> {
-      private static final TupleTag<String> mainOutput = new TupleTag<>("mainOutput");
-      private static final TupleTag<String> additionalOutput = new TupleTag<>("output");
 
       @StateId("value")
       private final StateSpec<ValueState<String>> valueStateSpec =
@@ -243,10 +255,11 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       FakeBeamFnStateClient fakeClient =
           new FakeBeamFnStateClient(
+              StringUtf8Coder.of(),
               ImmutableMap.of(
-                  bagUserStateKey("value", "X"), encode("X0"),
-                  bagUserStateKey("bag", "X"), encode("X0"),
-                  bagUserStateKey("combine", "X"), encode("X0")));
+                  bagUserStateKey("value", "X"), asList("X0"),
+                  bagUserStateKey("bag", "X"), asList("X0"),
+                  bagUserStateKey("combine", "X"), asList("X0")));
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -259,8 +272,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -303,14 +315,17 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(mainOutputValues, empty());
 
       assertEquals(
-          ImmutableMap.<StateKey, ByteString>builder()
-              .put(bagUserStateKey("value", "X"), encode("X2"))
-              .put(bagUserStateKey("bag", "X"), encode("X0", "X1", "X2"))
-              .put(bagUserStateKey("combine", "X"), encode("X0X1X2"))
-              .put(bagUserStateKey("value", "Y"), encode("Y2"))
-              .put(bagUserStateKey("bag", "Y"), encode("Y1", "Y2"))
-              .put(bagUserStateKey("combine", "Y"), encode("Y1Y2"))
-              .build(),
+          new FakeBeamFnStateClient(
+                  StringUtf8Coder.of(),
+                  ImmutableMap.<StateKey, List<String>>builder()
+                      .put(bagUserStateKey("value", "X"), asList("X2"))
+                      .put(bagUserStateKey("bag", "X"), asList("X0", "X1", "X2"))
+                      .put(bagUserStateKey("combine", "X"), asList("X0X1X2"))
+                      .put(bagUserStateKey("value", "Y"), asList("Y2"))
+                      .put(bagUserStateKey("bag", "Y"), asList("Y1", "Y2"))
+                      .put(bagUserStateKey("combine", "Y"), asList("Y1Y2"))
+                      .build())
+              .getData(),
           fakeClient.getData());
     }
 
@@ -396,14 +411,15 @@ public class FnApiDoFnRunnerTest implements Serializable {
       RunnerApi.PTransform pTransform =
           pProto.getComponents().getTransformsOrThrow(TEST_TRANSFORM_ID);
 
-      ImmutableMap<StateKey, ByteString> stateData =
+      ImmutableMap<StateKey, List<String>> stateData =
           ImmutableMap.of(
               iterableSideInputKey(singletonSideInputView.getTagInternal().getId()),
-              encode("singletonValue"),
+              asList("singletonValue"),
               iterableSideInputKey(iterableSideInputView.getTagInternal().getId()),
-              encode("iterableValue1", "iterableValue2", "iterableValue3"));
+              asList("iterableValue1", "iterableValue2", "iterableValue3"));
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(stateData, 1000);
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData, 1000);
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -417,12 +433,10 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<String>> additionalOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
       context.addPCollectionConsumer(
           additionalPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) additionalOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) additionalOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -464,7 +478,9 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(mainOutputValues, empty());
 
       // Assert that state data did not change
-      assertEquals(stateData, fakeClient.getData());
+      assertEquals(
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData).getData(),
+          fakeClient.getData());
     }
 
     private static class TestNonWindowObservingDoFn extends DoFn<String, String> {
@@ -520,12 +536,10 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<String>> additionalOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
       context.addPCollectionConsumer(
           additionalPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) additionalOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) additionalOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -639,14 +653,15 @@ public class FnApiDoFnRunnerTest implements Serializable {
                       .getTransformsOrThrow(TEST_TRANSFORM_ID)
                       .getSubtransforms(0));
 
-      ImmutableMap<StateKey, ByteString> stateData =
+      ImmutableMap<StateKey, List<String>> stateData =
           ImmutableMap.of(
               iterableSideInputKey(iterableSideInputView.getTagInternal().getId(), encodedWindowA),
-              encode("iterableValue1A", "iterableValue2A", "iterableValue3A"),
+              asList("iterableValue1A", "iterableValue2A", "iterableValue3A"),
               iterableSideInputKey(iterableSideInputView.getTagInternal().getId(), encodedWindowB),
-              encode("iterableValue1B", "iterableValue2B", "iterableValue3B"));
+              asList("iterableValue1B", "iterableValue2B", "iterableValue3B"));
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(stateData, 1000);
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData, 1000);
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -659,8 +674,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<Iterable<String>>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           Iterables.getOnlyElement(pTransform.getOutputsMap().values()),
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<Iterable<String>>>) mainOutputValues::add,
-          IterableCoder.of(StringUtf8Coder.of()));
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<Iterable<String>>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -693,7 +707,9 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(mainOutputValues, empty());
 
       // Assert that state data did not change
-      assertEquals(stateData, fakeClient.getData());
+      assertEquals(
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData).getData(),
+          fakeClient.getData());
     }
 
     /** @return a test MetricUpdate for expected metrics to compare against */
@@ -702,7 +718,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
     }
 
     @Test
-    @Ignore("https://issues.apache.org/jira/browse/BEAM-12230")
+    @Ignore("https://github.com/apache/beam/issues/20872")
     public void testUsingMetrics() throws Exception {
       MetricsContainerStepMap metricsContainerRegistry = new MetricsContainerStepMap();
       MetricsContainerImpl metricsContainer = metricsContainerRegistry.getUnboundContainer();
@@ -740,14 +756,14 @@ public class FnApiDoFnRunnerTest implements Serializable {
                       .getTransformsOrThrow(TEST_TRANSFORM_ID)
                       .getSubtransforms(0));
 
-      ImmutableMap<StateKey, ByteString> stateData =
+      ImmutableMap<StateKey, List<String>> stateData =
           ImmutableMap.of(
               iterableSideInputKey(iterableSideInputView.getTagInternal().getId(), encodedWindowA),
-              encode("iterableValue1A", "iterableValue2A", "iterableValue3A"),
+              asList("iterableValue1A", "iterableValue2A", "iterableValue3A"),
               iterableSideInputKey(iterableSideInputView.getTagInternal().getId(), encodedWindowB),
-              encode("iterableValue1B", "iterableValue2B", "iterableValue3B"));
+              asList("iterableValue1B", "iterableValue2B", "iterableValue3B"));
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(stateData);
+      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData);
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -760,8 +776,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<Iterable<String>>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           Iterables.getOnlyElement(pTransform.getOutputsMap().values()),
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<Iterable<String>>>) mainOutputValues::add,
-          IterableCoder.of(StringUtf8Coder.of()));
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<Iterable<String>>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -785,8 +800,6 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       Iterables.getOnlyElement(context.getTearDownFunctions()).run();
       assertThat(mainOutputValues, empty());
-
-      MetricsContainer mc = MetricsEnvironment.getCurrentContainer();
 
       List<MonitoringInfo> expected = new ArrayList<MonitoringInfo>();
       SimpleMonitoringInfoBuilder builder = new SimpleMonitoringInfoBuilder();
@@ -840,6 +853,50 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(result, containsInAnyOrder(expected.toArray()));
     }
 
+    private class TestBeamFnDataOutboundAggregator extends BeamFnDataOutboundAggregator {
+      private Map<LogicalEndpoint, List<org.apache.beam.runners.core.construction.Timer<?>>> timers;
+      private Map<LogicalEndpoint, List<WindowedValue<String>>> dataOutput;
+      private Supplier<String> processBundleRequestIdSupplier;
+
+      public TestBeamFnDataOutboundAggregator(Supplier<String> bundleIdSupplier) {
+        super(PipelineOptionsFactory.create(), bundleIdSupplier, null, false);
+        this.timers = new HashMap<>();
+        this.dataOutput = new HashMap<>();
+        this.processBundleRequestIdSupplier = bundleIdSupplier;
+      }
+
+      public Map<LogicalEndpoint, List<org.apache.beam.runners.core.construction.Timer<?>>>
+          getOutputTimers() {
+        return timers;
+      }
+
+      public Map<LogicalEndpoint, List<WindowedValue<String>>> getOutputData() {
+        return dataOutput;
+      }
+
+      @Override
+      public <T> FnDataReceiver<T> registerOutputDataLocation(String pTransformId, Coder<T> coder) {
+        return data ->
+            dataOutput
+                .computeIfAbsent(
+                    LogicalEndpoint.data(processBundleRequestIdSupplier.get(), pTransformId),
+                    e -> new ArrayList<>())
+                .add((WindowedValue<String>) data);
+      }
+
+      @Override
+      public <T> FnDataReceiver<T> registerOutputTimersLocation(
+          String pTransformId, String timerFamilyId, Coder<T> coder) {
+        return data ->
+            timers
+                .computeIfAbsent(
+                    LogicalEndpoint.timer(
+                        processBundleRequestIdSupplier.get(), pTransformId, timerFamilyId),
+                    e -> new ArrayList<>())
+                .add((org.apache.beam.runners.core.construction.Timer<?>) data);
+      }
+    }
+
     @Test
     public void testTimers() throws Exception {
       dateTimeProvider.setDateTimeFixed(10000L);
@@ -869,26 +926,29 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       FakeBeamFnStateClient fakeStateClient =
           new FakeBeamFnStateClient(
+              StringUtf8Coder.of(),
               ImmutableMap.of(
-                  bagUserStateKey("bag", "X"), encode("X0"),
-                  bagUserStateKey("bag", "A"), encode("A0"),
-                  bagUserStateKey("bag", "C"), encode("C0")));
-      FakeBeamFnTimerClient fakeTimerClient = new FakeBeamFnTimerClient();
+                  bagUserStateKey("bag", "X"), asList("X0"),
+                  bagUserStateKey("bag", "A"), asList("A0"),
+                  bagUserStateKey("bag", "C"), asList("C0")));
+      List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
+      TestBeamFnDataOutboundAggregator aggregator =
+          new TestBeamFnDataOutboundAggregator(() -> "57L");
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
               .beamFnStateClient(fakeStateClient)
-              .beamFnTimerClient(fakeTimerClient)
               .processBundleInstructionId("57L")
               .pCollections(pProto.getComponentsOrBuilder().getPcollectionsMap())
               .coders(pProto.getComponents().getCodersMap())
               .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
+              .outboundAggregators(
+                  ImmutableMap.of(ApiServiceDescriptor.getDefaultInstance(), aggregator))
+              .timerApiServiceDescriptor(ApiServiceDescriptor.getDefaultInstance())
               .build();
-      List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -988,16 +1048,11 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       mainOutputValues.clear();
 
-      assertFalse(fakeTimerClient.isOutboundClosed(eventTimer));
-      assertFalse(fakeTimerClient.isOutboundClosed(processingTimer));
-      assertFalse(fakeTimerClient.isOutboundClosed(eventFamilyTimer));
-      assertFalse(fakeTimerClient.isOutboundClosed(processingFamilyTimer));
-
       // Timers will get delivered to the client when finishBundle is called.
       Iterables.getOnlyElement(context.getFinishBundleFunctions()).run();
 
       assertThat(
-          fakeTimerClient.getTimers(eventTimer),
+          aggregator.getOutputTimers().get(eventTimer),
           contains(
               clearedTimerInGlobalWindow("X"),
               timerInGlobalWindow("Y", new Instant(2100L), new Instant(2181L)),
@@ -1005,7 +1060,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               timerInGlobalWindow("B", new Instant(2000L), new Instant(2071L)),
               timerInGlobalWindow("C", new Instant(1800L), new Instant(1861L))));
       assertThat(
-          fakeTimerClient.getTimers(processingTimer),
+          aggregator.getOutputTimers().get(processingTimer),
           contains(
               clearedTimerInGlobalWindow("X"),
               timerInGlobalWindow("Y", new Instant(2100L), new Instant(10082L)),
@@ -1014,7 +1069,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               timerInGlobalWindow("C", new Instant(1800L), new Instant(10062L))));
 
       assertThat(
-          fakeTimerClient.getTimers(eventFamilyTimer),
+          aggregator.getOutputTimers().get(eventFamilyTimer),
           containsInAnyOrder(
               dynamicTimerInGlobalWindow(
                   "X", "event-timer1", new Instant(1200L), new Instant(1203L)),
@@ -1029,7 +1084,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               dynamicTimerInGlobalWindow(
                   "C", "event-timer1", new Instant(1800L), new Instant(1863L))));
       assertThat(
-          fakeTimerClient.getTimers(processingFamilyTimer),
+          aggregator.getOutputTimers().get(processingFamilyTimer),
           containsInAnyOrder(
               dynamicTimerInGlobalWindow(
                   "X", "processing-timer1", new Instant(1200L), new Instant(10004L)),
@@ -1046,26 +1101,25 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       assertThat(mainOutputValues, empty());
 
-      assertTrue(fakeTimerClient.isOutboundClosed(eventTimer));
-      assertTrue(fakeTimerClient.isOutboundClosed(processingTimer));
-      assertTrue(fakeTimerClient.isOutboundClosed(eventFamilyTimer));
-      assertTrue(fakeTimerClient.isOutboundClosed(processingFamilyTimer));
-
       Iterables.getOnlyElement(context.getTearDownFunctions()).run();
       assertThat(mainOutputValues, empty());
 
       assertEquals(
-          ImmutableMap.<StateKey, ByteString>builder()
-              .put(bagUserStateKey("bag", "X"), encode("X0", "X1", "X2"))
-              .put(bagUserStateKey("bag", "Y"), encode("Y1", "Y2", "processing-family"))
-              .put(
-                  bagUserStateKey("bag", "A"),
-                  encode("A0", "event", "event", "event", "event", "event", "event", "event"))
-              .put(
-                  bagUserStateKey("bag", "B"),
-                  encode("event", "processing", "event", "event", "event", "event-family"))
-              .put(bagUserStateKey("bag", "C"), encode("C0", "processing"))
-              .build(),
+          new FakeBeamFnStateClient(
+                  StringUtf8Coder.of(),
+                  ImmutableMap.<StateKey, List<String>>builder()
+                      .put(bagUserStateKey("bag", "X"), asList("X0", "X1", "X2"))
+                      .put(bagUserStateKey("bag", "Y"), asList("Y1", "Y2", "processing-family"))
+                      .put(
+                          bagUserStateKey("bag", "A"),
+                          asList(
+                              "A0", "event", "event", "event", "event", "event", "event", "event"))
+                      .put(
+                          bagUserStateKey("bag", "B"),
+                          asList("event", "processing", "event", "event", "event", "event-family"))
+                      .put(bagUserStateKey("bag", "C"), asList("C0", "processing"))
+                      .build())
+              .getData(),
           fakeStateClient.getData());
     }
 
@@ -1106,6 +1160,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
     }
 
     private static class TestTimerfulDoFn extends DoFn<KV<String, String>, String> {
+
       @StateId("bag")
       private final StateSpec<BagState<String>> bagStateSpec = StateSpecs.bag(StringUtf8Coder.of());
 
@@ -1283,7 +1338,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
     }
 
     private ByteString encode(String... values) throws IOException {
-      ByteString.Output out = ByteString.newOutput();
+      ByteStringOutputStream out = new ByteStringOutputStream();
       for (String value : values) {
         StringUtf8Coder.of().encode(value, out);
       }
@@ -1484,6 +1539,11 @@ public class FnApiDoFnRunnerTest implements Serializable {
       }
 
       @Override
+      public Duration getAllowedTimestampSkew() {
+        return Duration.millis(Long.MAX_VALUE);
+      }
+
+      @Override
       @TruncateRestriction
       public TruncateResult<OffsetRange> truncateRestriction(@Restriction OffsetRange range)
           throws Exception {
@@ -1555,13 +1615,13 @@ public class FnApiDoFnRunnerTest implements Serializable {
                       TranslationContext.DEFAULT));
       String outputPCollectionId = pTransform.getOutputsOrThrow("output");
 
-      ImmutableMap<StateKey, ByteString> stateData =
+      ImmutableMap<StateKey, List<String>> stateData =
           ImmutableMap.of(
               iterableSideInputKey(
                   singletonSideInputView.getTagInternal().getId(), ByteString.EMPTY),
-              encode("8"));
+              asList("8"));
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(stateData);
+      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData);
 
       BundleSplitListener.InMemory splitListener = BundleSplitListener.InMemory.create();
 
@@ -1577,8 +1637,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -1595,18 +1654,14 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       {
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         mainInput.accept(
             valueInGlobalWindow(
                 KV.of(
                     KV.of("5", KV.of(new OffsetRange(5, 10), GlobalWindow.TIMESTAMP_MIN_VALUE)),
                     5.0)));
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         // Since the side input upperBound is 8 we will process 5, 6, and 7 then checkpoint.
         // We expect that the watermark advances to MIN + 7 and that the primary represents [5, 8)
@@ -1642,13 +1697,13 @@ public class FnApiDoFnRunnerTest implements Serializable {
         assertEquals(
             ImmutableMap.of(
                 "output",
-                org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                     .setSeconds(expectedOutputWatermark.getMillis() / 1000)
                     .setNanos((int) (expectedOutputWatermark.getMillis() % 1000) * 1000000)
                     .build()),
             residualRoot.getApplication().getOutputWatermarksMap());
         assertEquals(
-            org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Duration.newBuilder()
+            org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Duration.newBuilder()
                 .setSeconds(54)
                 .setNanos(321000000)
                 .build(),
@@ -1656,18 +1711,14 @@ public class FnApiDoFnRunnerTest implements Serializable {
         splitListener.clear();
 
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         mainInput.accept(
             valueInGlobalWindow(
                 KV.of(
                     KV.of("2", KV.of(new OffsetRange(0, 2), GlobalWindow.TIMESTAMP_MIN_VALUE)),
                     2.0)));
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         assertThat(
             mainOutputValues,
@@ -1699,32 +1750,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
                     assertEquals(0.6, ((HandlesSplits) mainInput).getProgress(), 0.01);
 
                     // Check that during progressing of an element we report progress
-                    List<MonitoringInfo> mis =
-                        Iterables.getOnlyElement(context.getProgressRequestCallbacks())
-                            .getMonitoringInfos();
-                    MonitoringInfo.Builder expectedCompleted = MonitoringInfo.newBuilder();
-                    expectedCompleted.setUrn(MonitoringInfoConstants.Urns.WORK_COMPLETED);
-                    expectedCompleted.setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE);
-                    expectedCompleted.putLabels(
-                        MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID);
-                    expectedCompleted.setPayload(
-                        ByteString.copyFrom(
-                            CoderUtils.encodeToByteArray(
-                                IterableCoder.of(DoubleCoder.of()),
-                                Collections.singletonList(3.0))));
-                    MonitoringInfo.Builder expectedRemaining = MonitoringInfo.newBuilder();
-                    expectedRemaining.setUrn(MonitoringInfoConstants.Urns.WORK_REMAINING);
-                    expectedRemaining.setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE);
-                    expectedRemaining.putLabels(
-                        MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID);
-                    expectedRemaining.setPayload(
-                        ByteString.copyFrom(
-                            CoderUtils.encodeToByteArray(
-                                IterableCoder.of(DoubleCoder.of()),
-                                Collections.singletonList(2.0))));
-                    assertThat(
-                        mis,
-                        containsInAnyOrder(expectedCompleted.build(), expectedRemaining.build()));
+                    assertReportedProgressEquals(
+                        context.getShortIdMap(), context.getBundleProgressReporters(), 3.0, 2.0);
 
                     return ((HandlesSplits) mainInput).trySplit(0);
                   } finally {
@@ -1733,9 +1760,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                 });
 
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         mainInput.accept(
             valueInGlobalWindow(
                 KV.of(
@@ -1744,9 +1769,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
         HandlesSplits.SplitResult trySplitResult = trySplitFuture.get();
 
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         // Since the SPLIT_ELEMENT is 3 we will process 0, 1, 2, 3 then be split.
         // We expect that the watermark advances to MIN + 2 since the manual watermark estimator
@@ -1794,7 +1817,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
         assertEquals(
             ImmutableMap.of(
                 "output",
-                org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                     .setSeconds(expectedOutputWatermark.getMillis() / 1000)
                     .setNanos((int) (expectedOutputWatermark.getMillis() % 1000) * 1000000)
                     .build()),
@@ -1817,7 +1840,60 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(mainOutputValues, empty());
 
       // Assert that state data did not change
-      assertEquals(stateData, fakeClient.getData());
+      assertEquals(
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData).getData(),
+          fakeClient.getData());
+    }
+
+    private static final MonitoringInfo WORK_COMPLETED_MI =
+        MonitoringInfo.newBuilder()
+            .setUrn(MonitoringInfoConstants.Urns.WORK_COMPLETED)
+            .setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE)
+            .putLabels(MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID)
+            .build();
+
+    private static final MonitoringInfo WORK_REMAINING_MI =
+        MonitoringInfo.newBuilder()
+            .setUrn(MonitoringInfoConstants.Urns.WORK_REMAINING)
+            .setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE)
+            .putLabels(MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID)
+            .build();
+
+    private static void assertNoReportedProgress(List<BundleProgressReporter> reporters) {
+      Map<String, ByteString> monitoringData = new HashMap<>();
+      for (BundleProgressReporter reporter : reporters) {
+        reporter.updateIntermediateMonitoringData(monitoringData);
+      }
+      assertThat(monitoringData.entrySet(), empty());
+    }
+
+    private static void assertReportedProgressEquals(
+        ShortIdMap shortIdMap,
+        List<BundleProgressReporter> reporters,
+        double expectedWorkCompleted,
+        double expectedWorkRemaining)
+        throws Exception {
+      Map<String, ByteString> monitoringData = new HashMap<>();
+      for (BundleProgressReporter reporter : reporters) {
+        reporter.updateIntermediateMonitoringData(monitoringData);
+      }
+      String workCompletedShortId = shortIdMap.getOrCreateShortId(WORK_COMPLETED_MI);
+      String workRemainingShortId = shortIdMap.getOrCreateShortId(WORK_REMAINING_MI);
+      assertTrue(monitoringData.containsKey(workCompletedShortId));
+      assertTrue(monitoringData.containsKey(workRemainingShortId));
+      assertEquals(
+          ByteString.copyFrom(
+              CoderUtils.encodeToByteArray(
+                  IterableCoder.of(DoubleCoder.of()),
+                  Collections.singletonList(expectedWorkCompleted))),
+          monitoringData.get(workCompletedShortId));
+
+      assertEquals(
+          ByteString.copyFrom(
+              CoderUtils.encodeToByteArray(
+                  IterableCoder.of(DoubleCoder.of()),
+                  Collections.singletonList(expectedWorkRemaining))),
+          monitoringData.get(workRemainingShortId));
     }
 
     @Test
@@ -1881,13 +1957,13 @@ public class FnApiDoFnRunnerTest implements Serializable {
                       TranslationContext.DEFAULT));
       String outputPCollectionId = pTransform.getOutputsOrThrow("output");
 
-      ImmutableMap<StateKey, ByteString> stateData =
+      ImmutableMap<StateKey, List<String>> stateData =
           ImmutableMap.of(
               iterableSideInputKey(
                   singletonSideInputView.getTagInternal().getId(), ByteString.EMPTY),
-              encode("8"));
+              asList("8"));
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(stateData);
+      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData);
 
       BundleSplitListener.InMemory splitListener = BundleSplitListener.InMemory.create();
       PTransformRunnerFactoryTestContext context =
@@ -1902,8 +1978,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
       context.addPCollectionConsumer(
           outputPCollectionId,
-          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add,
-          StringUtf8Coder.of());
+          (FnDataReceiver) (FnDataReceiver<WindowedValue<String>>) mainOutputValues::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -1922,9 +1997,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       BoundedWindow window2 = new IntervalWindow(new Instant(6), new Instant(11));
       {
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         WindowedValue<?> firstValue =
             valueInWindows(
                 KV.of(
@@ -1938,9 +2011,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                 window2);
         mainInput.accept(firstValue);
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         // Since the side input upperBound is 8 we will process 5, 6, and 7 then checkpoint.
         // We expect that the watermark advances to MIN + 7 and that the primary represents [5, 8)
@@ -1961,27 +2032,27 @@ public class FnApiDoFnRunnerTest implements Serializable {
             residualRoot.getApplication().getInputId());
         assertEquals(TEST_TRANSFORM_ID, residualRoot.getApplication().getTransformId());
         Instant expectedOutputWatermark = GlobalWindow.TIMESTAMP_MIN_VALUE.plus(Duration.millis(7));
-        Map<String, org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp>
+        Map<String, org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp>
             expectedOutputWatmermarkMap =
                 ImmutableMap.of(
                     "output",
-                    org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                    org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                         .setSeconds(expectedOutputWatermark.getMillis() / 1000)
                         .setNanos((int) (expectedOutputWatermark.getMillis() % 1000) * 1000000)
                         .build());
         Instant initialWatermark = GlobalWindow.TIMESTAMP_MIN_VALUE.plus(Duration.millis(1));
-        Map<String, org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp>
+        Map<String, org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp>
             expectedOutputWatmermarkMapForUnprocessedWindows =
                 ImmutableMap.of(
                     "output",
-                    org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                    org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                         .setSeconds(initialWatermark.getMillis() / 1000)
                         .setNanos((int) (initialWatermark.getMillis() % 1000) * 1000000)
                         .build());
         assertEquals(
             expectedOutputWatmermarkMap, residualRoot.getApplication().getOutputWatermarksMap());
         assertEquals(
-            org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Duration.newBuilder()
+            org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Duration.newBuilder()
                 .setSeconds(54)
                 .setNanos(321000000)
                 .build(),
@@ -2040,9 +2111,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
         splitListener.clear();
 
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         WindowedValue<?> secondValue =
             valueInWindows(
                 KV.of(
@@ -2056,9 +2125,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                 window2);
         mainInput.accept(secondValue);
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         assertThat(
             mainOutputValues,
@@ -2115,32 +2182,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
                     assertEquals(0.3, ((HandlesSplits) mainInput).getProgress(), 0.01);
 
                     // Check that during progressing of an element we report progress
-                    List<MonitoringInfo> mis =
-                        Iterables.getOnlyElement(context.getProgressRequestCallbacks())
-                            .getMonitoringInfos();
-                    MonitoringInfo.Builder expectedCompleted = MonitoringInfo.newBuilder();
-                    expectedCompleted.setUrn(MonitoringInfoConstants.Urns.WORK_COMPLETED);
-                    expectedCompleted.setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE);
-                    expectedCompleted.putLabels(
-                        MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID);
-                    expectedCompleted.setPayload(
-                        ByteString.copyFrom(
-                            CoderUtils.encodeToByteArray(
-                                IterableCoder.of(DoubleCoder.of()),
-                                Collections.singletonList(3.0))));
-                    MonitoringInfo.Builder expectedRemaining = MonitoringInfo.newBuilder();
-                    expectedRemaining.setUrn(MonitoringInfoConstants.Urns.WORK_REMAINING);
-                    expectedRemaining.setType(MonitoringInfoConstants.TypeUrns.PROGRESS_TYPE);
-                    expectedRemaining.putLabels(
-                        MonitoringInfoConstants.Labels.PTRANSFORM, TEST_TRANSFORM_ID);
-                    expectedRemaining.setPayload(
-                        ByteString.copyFrom(
-                            CoderUtils.encodeToByteArray(
-                                IterableCoder.of(DoubleCoder.of()),
-                                Collections.singletonList(7.0))));
-                    assertThat(
-                        mis,
-                        containsInAnyOrder(expectedCompleted.build(), expectedRemaining.build()));
+                    assertReportedProgressEquals(
+                        context.getShortIdMap(), context.getBundleProgressReporters(), 3.0, 7.0);
 
                     return ((HandlesSplits) mainInput).trySplit(0);
                   } finally {
@@ -2149,9 +2192,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                 });
 
         // Check that before processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+        assertNoReportedProgress(context.getBundleProgressReporters());
         WindowedValue<?> splitValue =
             valueInWindows(
                 KV.of(
@@ -2167,9 +2208,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
         HandlesSplits.SplitResult trySplitResult = trySplitFuture.get();
 
         // Check that after processing an element we don't report progress
-        assertThat(
-            Iterables.getOnlyElement(context.getProgressRequestCallbacks()).getMonitoringInfos(),
-            empty());
+
+        assertNoReportedProgress(context.getBundleProgressReporters());
 
         // Since the SPLIT_ELEMENT is 3 we will process 0, 1, 2, 3 then be split on the first
         // window.
@@ -2221,19 +2261,19 @@ public class FnApiDoFnRunnerTest implements Serializable {
             residualRootInUnprocessedWindows.getRequestedTimeDelay());
         Instant initialWatermark = GlobalWindow.TIMESTAMP_MIN_VALUE.plus(Duration.millis(1));
         Instant expectedOutputWatermark = GlobalWindow.TIMESTAMP_MIN_VALUE.plus(Duration.millis(2));
-        Map<String, org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp>
+        Map<String, org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp>
             expectedOutputWatermarkMapInUnprocessedResiduals =
                 ImmutableMap.of(
                     "output",
-                    org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                    org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                         .setSeconds(initialWatermark.getMillis() / 1000)
                         .setNanos((int) (initialWatermark.getMillis() % 1000) * 1000000)
                         .build());
-        Map<String, org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp>
+        Map<String, org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp>
             expectedOutputWatermarkMap =
                 ImmutableMap.of(
                     "output",
-                    org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+                    org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
                         .setSeconds(expectedOutputWatermark.getMillis() / 1000)
                         .setNanos((int) (expectedOutputWatermark.getMillis() % 1000) * 1000000)
                         .build());
@@ -2297,7 +2337,9 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertThat(mainOutputValues, empty());
 
       // Assert that state data did not change
-      assertEquals(stateData, fakeClient.getData());
+      assertEquals(
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), stateData).getData(),
+          fakeClient.getData());
     }
 
     private static <T> T decode(Coder<T> coder, ByteString value) {
@@ -2339,7 +2381,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -2350,10 +2393,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
               .build();
       List<WindowedValue<KV<String, OffsetRange>>> mainOutputValues = new ArrayList<>();
-      context.addPCollectionConsumer(
-          outputPCollectionId,
-          ((List) mainOutputValues)::add,
-          KvCoder.of(StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())));
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2426,7 +2466,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -2437,10 +2478,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
               .build();
       List<WindowedValue<KV<String, OffsetRange>>> mainOutputValues = new ArrayList<>();
-      context.addPCollectionConsumer(
-          outputPCollectionId,
-          ((List) mainOutputValues)::add,
-          KvCoder.of(StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())));
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2512,7 +2550,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
         throws Exception {
       Pipeline p = Pipeline.create();
       PCollection<String> valuePCollection = p.apply(Create.of("unused"));
-      PCollectionView<String> singletonSideInputView = valuePCollection.apply(View.asSingleton());
+      valuePCollection.apply(View.asSingleton());
       valuePCollection
           .apply(Window.into(SlidingWindows.of(Duration.standardSeconds(1))))
           .apply(TEST_TRANSFORM_ID, ParDo.of(new NonWindowObservingTestSplittableDoFn()));
@@ -2539,7 +2577,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -2550,10 +2589,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
               .build();
       List<WindowedValue<KV<String, OffsetRange>>> mainOutputValues = new ArrayList<>();
-      context.addPCollectionConsumer(
-          outputPCollectionId,
-          ((List) mainOutputValues)::add,
-          KvCoder.of(StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())));
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2636,7 +2672,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -2652,7 +2689,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               KvCoder.of(
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
-      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add, coder);
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2734,7 +2771,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -2750,7 +2788,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               KvCoder.of(
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
-      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add, coder);
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2891,7 +2929,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               KvCoder.of(
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
-      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add, coder);
+      context.addPCollectionConsumer(outputPCollectionId, ((List) mainOutputValues)::add);
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -2960,8 +2998,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
     }
 
     private static SplitResult createSplitResult(double fractionOfRemainder) {
-      ByteString.Output primaryBytes = ByteString.newOutput();
-      ByteString.Output residualBytes = ByteString.newOutput();
+      ByteStringOutputStream primaryBytes = new ByteStringOutputStream();
+      ByteStringOutputStream residualBytes = new ByteStringOutputStream();
       try {
         DoubleCoder.of().encode(fractionOfRemainder, primaryBytes);
         DoubleCoder.of().encode(1 - fractionOfRemainder, residualBytes);
@@ -3069,7 +3107,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -3086,9 +3125,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
       context.addPCollectionConsumer(
-          outputPCollectionId,
-          (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues),
-          coder);
+          outputPCollectionId, (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues));
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
       FnDataReceiver<WindowedValue<?>> mainInput =
@@ -3145,7 +3182,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       SplitResult expectedElementSplit = createSplitResult(0);
       BundleApplication expectedElementSplitPrimary =
           Iterables.getOnlyElement(expectedElementSplit.getPrimaryRoots());
-      ByteString.Output primaryBytes = ByteString.newOutput();
+      ByteStringOutputStream primaryBytes = new ByteStringOutputStream();
       inputCoder.encode(
           WindowedValue.of(
               KV.of(
@@ -3162,7 +3199,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
               .build();
       DelayedBundleApplication expectedElementSplitResidual =
           Iterables.getOnlyElement(expectedElementSplit.getResidualRoots());
-      ByteString.Output residualBytes = ByteString.newOutput();
+      ByteStringOutputStream residualBytes = new ByteStringOutputStream();
       inputCoder.encode(
           WindowedValue.of(
               KV.of(
@@ -3219,7 +3256,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -3233,9 +3271,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       Coder coder =
           KvCoder.of(KvCoder.of(StringUtf8Coder.of(), OffsetRange.Coder.of()), DoubleCoder.of());
       context.addPCollectionConsumer(
-          outputPCollectionId,
-          (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues),
-          coder);
+          outputPCollectionId, (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues));
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
       FnDataReceiver<WindowedValue<?>> mainInput =
@@ -3276,7 +3312,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -3293,9 +3330,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
       context.addPCollectionConsumer(
-          outputPCollectionId,
-          (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues),
-          coder);
+          outputPCollectionId, (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues));
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -3375,7 +3410,8 @@ public class FnApiDoFnRunnerTest implements Serializable {
           pTransform.getInputsOrThrow(ParDoTranslation.getMainInputName(pTransform));
       String outputPCollectionId = Iterables.getOnlyElement(pTransform.getOutputsMap().values());
 
-      FakeBeamFnStateClient fakeClient = new FakeBeamFnStateClient(ImmutableMap.of());
+      FakeBeamFnStateClient fakeClient =
+          new FakeBeamFnStateClient(StringUtf8Coder.of(), ImmutableMap.of());
 
       PTransformRunnerFactoryTestContext context =
           PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
@@ -3392,9 +3428,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
       context.addPCollectionConsumer(
-          outputPCollectionId,
-          (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues),
-          coder);
+          outputPCollectionId, (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues));
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -3512,9 +3546,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
                   StringUtf8Coder.of(), KvCoder.of(OffsetRange.Coder.of(), InstantCoder.of())),
               DoubleCoder.of());
       context.addPCollectionConsumer(
-          outputPCollectionId,
-          (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues),
-          coder);
+          outputPCollectionId, (FnDataReceiver) new SplittableFnDataReceiver(mainOutputValues));
 
       new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
 
@@ -3570,6 +3602,142 @@ public class FnApiDoFnRunnerTest implements Serializable {
 
       Iterables.getOnlyElement(context.getTearDownFunctions()).run();
       assertThat(mainOutputValues, empty());
+    }
+
+    /**
+     * A {@link DoFn} that outputs elements with timestamp equal to the input timestamp minus the
+     * input element.
+     */
+    private static class SkewingDoFn extends DoFn<String, String> {
+      private final Duration allowedSkew;
+
+      private SkewingDoFn(Duration allowedSkew) {
+        this.allowedSkew = allowedSkew;
+      }
+
+      @ProcessElement
+      public void processElement(ProcessContext context) {
+        Duration duration = Duration.millis(Long.valueOf(context.element()));
+        context.outputWithTimestamp(context.element(), context.timestamp().minus(duration));
+      }
+
+      @Override
+      public Duration getAllowedTimestampSkew() {
+        return allowedSkew;
+      }
+    }
+
+    private static class OutputFnDataReceiver implements FnDataReceiver<WindowedValue> {
+      OutputFnDataReceiver(List<WindowedValue<String>> mainOutputValues) {
+        this.mainOutputValues = mainOutputValues;
+      }
+
+      private final List<WindowedValue<String>> mainOutputValues;
+
+      @Override
+      public void accept(WindowedValue input) throws Exception {
+        mainOutputValues.add(input);
+      }
+    }
+
+    @Test
+    public void testDoFnSkewNotAllowed() throws Exception {
+      Pipeline p = Pipeline.create();
+      PCollection<String> valuePCollection = p.apply(Create.of("0", "1"));
+      PCollection<String> outputPCollection =
+          valuePCollection.apply(TEST_TRANSFORM_ID, ParDo.of(new SkewingDoFn(Duration.ZERO)));
+
+      SdkComponents sdkComponents = SdkComponents.create(p.getOptions());
+      RunnerApi.Pipeline pProto = PipelineTranslation.toProto(p, sdkComponents);
+      String inputPCollectionId = sdkComponents.registerPCollection(valuePCollection);
+      String outputPCollectionId = sdkComponents.registerPCollection(outputPCollection);
+      RunnerApi.PTransform pTransform =
+          pProto
+              .getComponents()
+              .getTransformsOrThrow(
+                  pProto
+                      .getComponents()
+                      .getTransformsOrThrow(TEST_TRANSFORM_ID)
+                      .getSubtransforms(0));
+
+      PTransformRunnerFactoryTestContext context =
+          PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
+              .processBundleInstructionId("57")
+              .pCollections(pProto.getComponentsOrBuilder().getPcollectionsMap())
+              .coders(pProto.getComponents().getCodersMap())
+              .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
+              .build();
+      List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
+      Coder coder = StringUtf8Coder.of();
+      context.addPCollectionConsumer(
+          outputPCollectionId, (FnDataReceiver) new OutputFnDataReceiver(mainOutputValues));
+
+      new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
+
+      mainOutputValues.clear();
+      FnDataReceiver<WindowedValue<?>> mainInput =
+          context.getPCollectionConsumer(inputPCollectionId);
+      mainInput.accept(valueInGlobalWindow("0"));
+
+      String message =
+          assertThrows(
+                  UserCodeException.class,
+                  () -> {
+                    mainInput.accept(timestampedValueInGlobalWindow("1", new Instant(0L)));
+                  })
+              .getMessage();
+
+      assertThat(
+          message,
+          allOf(
+              containsString(
+                  String.format("timestamp %s", new Instant(0).minus(Duration.millis(1L)))),
+              containsString(
+                  String.format(
+                      "allowed skew (%s)",
+                      PeriodFormat.getDefault().print(Duration.ZERO.toPeriod())))));
+    }
+
+    @Test
+    public void testDoFnSkewAllowed() throws Exception {
+      Pipeline p = Pipeline.create();
+      PCollection<String> valuePCollection = p.apply(Create.of("0", "3"));
+      PCollection<String> outputPCollection =
+          valuePCollection.apply(TEST_TRANSFORM_ID, ParDo.of(new SkewingDoFn(Duration.millis(5L))));
+
+      SdkComponents sdkComponents = SdkComponents.create(p.getOptions());
+      RunnerApi.Pipeline pProto = PipelineTranslation.toProto(p, sdkComponents);
+      String inputPCollectionId = sdkComponents.registerPCollection(valuePCollection);
+      String outputPCollectionId = sdkComponents.registerPCollection(outputPCollection);
+      RunnerApi.PTransform pTransform =
+          pProto
+              .getComponents()
+              .getTransformsOrThrow(
+                  pProto
+                      .getComponents()
+                      .getTransformsOrThrow(TEST_TRANSFORM_ID)
+                      .getSubtransforms(0));
+
+      List<WindowedValue<String>> mainOutputValues = new ArrayList<>();
+      PTransformRunnerFactoryTestContext context =
+          PTransformRunnerFactoryTestContext.builder(TEST_TRANSFORM_ID, pTransform)
+              .processBundleInstructionId("57")
+              .pCollections(pProto.getComponentsOrBuilder().getPcollectionsMap())
+              .coders(pProto.getComponents().getCodersMap())
+              .windowingStrategies(pProto.getComponents().getWindowingStrategiesMap())
+              .build();
+      Coder coder = StringUtf8Coder.of();
+      context.addPCollectionConsumer(
+          outputPCollectionId, (FnDataReceiver) new OutputFnDataReceiver(mainOutputValues));
+
+      new FnApiDoFnRunner.Factory<>().createRunnerForPTransform(context);
+
+      mainOutputValues.clear();
+
+      FnDataReceiver<WindowedValue<?>> mainInput =
+          context.getPCollectionConsumer(inputPCollectionId);
+      mainInput.accept(valueInGlobalWindow("0"));
+      mainInput.accept(timestampedValueInGlobalWindow("3", new Instant(0L)));
     }
   }
 
@@ -4492,9 +4660,9 @@ public class FnApiDoFnRunnerTest implements Serializable {
                   .build()));
     }
 
-    private org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp toTimestamp(
+    private org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp toTimestamp(
         Instant time) {
-      return org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Timestamp.newBuilder()
+      return org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Timestamp.newBuilder()
           .setSeconds(time.getMillis() / 1000)
           .setNanos((int) (time.getMillis() % 1000) * 1000000)
           .build();
@@ -4600,7 +4768,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       assertEquals(1, result.getResidualRoots().size());
       DelayedBundleApplication residualRoot = result.getResidualRoots().get(0);
       assertEquals(
-          org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Duration.getDefaultInstance(),
+          org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Duration.getDefaultInstance(),
           residualRoot.getRequestedTimeDelay());
       assertEquals(PROCESS_TRANSFORM_ID, residualRoot.getApplication().getTransformId());
       assertEquals(PROCESS_INPUT_ID, residualRoot.getApplication().getInputId());
@@ -4655,7 +4823,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       DelayedBundleApplication windowResidual = result.getResidualRoots().get(0);
       DelayedBundleApplication elementResidual = result.getResidualRoots().get(1);
       assertEquals(
-          org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Duration.getDefaultInstance(),
+          org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Duration.getDefaultInstance(),
           windowResidual.getRequestedTimeDelay());
       assertEquals(PROCESS_TRANSFORM_ID, windowResidual.getApplication().getTransformId());
       assertEquals(PROCESS_INPUT_ID, windowResidual.getApplication().getInputId());
@@ -4713,7 +4881,7 @@ public class FnApiDoFnRunnerTest implements Serializable {
       DelayedBundleApplication windowResidual = result.getResidualRoots().get(0);
       DelayedBundleApplication elementResidual = result.getResidualRoots().get(1);
       assertEquals(
-          org.apache.beam.vendor.grpc.v1p36p0.com.google.protobuf.Duration.getDefaultInstance(),
+          org.apache.beam.vendor.grpc.v1p43p2.com.google.protobuf.Duration.getDefaultInstance(),
           windowResidual.getRequestedTimeDelay());
       assertEquals(TRUNCATE_TRANSFORM_ID, windowResidual.getApplication().getTransformId());
       assertEquals(TRUNCATE_INPUT_ID, windowResidual.getApplication().getInputId());

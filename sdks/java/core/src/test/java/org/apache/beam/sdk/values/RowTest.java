@@ -47,7 +47,7 @@ import org.junit.rules.ExpectedException;
 
 /** Unit tests for {@link Row}. */
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class RowTest {
 
@@ -757,14 +757,14 @@ public class RowTest {
   public void testLogicalTypeWithInvalidInputValueByFieldName() {
     Schema schema = Schema.builder().addLogicalTypeField("char", FixedBytes.of(10)).build();
     byte[] byteArrayWithLengthFive = {1, 2, 3, 4, 5};
-    Row row = Row.withSchema(schema).withFieldValue("char", byteArrayWithLengthFive).build();
+    Row.withSchema(schema).withFieldValue("char", byteArrayWithLengthFive).build();
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testLogicalTypeWithInvalidInputValueByFieldIndex() {
     Schema schema = Schema.builder().addLogicalTypeField("char", FixedBytes.of(10)).build();
     byte[] byteArrayWithLengthFive = {1, 2, 3, 4, 5};
-    Row row = Row.withSchema(schema).addValues(byteArrayWithLengthFive).build();
+    Row.withSchema(schema).addValues(byteArrayWithLengthFive).build();
   }
 
   @Test

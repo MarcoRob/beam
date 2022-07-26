@@ -71,7 +71,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * }</pre>
  */
 @SuppressWarnings({
-  "rawtypes" // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes" // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class PCollectionTuple implements PInput, POutput {
   /**
@@ -221,7 +221,8 @@ public class PCollectionTuple implements PInput, POutput {
     @SuppressWarnings("unchecked")
     PCollection<T> pcollection = (PCollection<T>) pcollectionMap.get(tag);
     if (pcollection == null) {
-      throw new IllegalArgumentException("TupleTag not found in this PCollectionTuple tuple");
+      throw new IllegalArgumentException(
+          String.format("TupleTag %s not found in this PCollectionTuple tuple", tag));
     }
     return pcollection;
   }

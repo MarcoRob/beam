@@ -82,7 +82,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 @Internal
 @SuppressWarnings({
   "keyfor",
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
   "rawtypes"
 })
 public class PCollectionViews {
@@ -680,65 +680,6 @@ public class PCollectionViews {
       public ListIterator<T> listIterator() {
         return super.listIterator();
       }
-
-      /** A {@link ListIterator} over {@link MultimapView} adapter. */
-      private class ListIteratorOverMultimapView implements ListIterator<T> {
-        private int position;
-
-        @Override
-        public boolean hasNext() {
-          return position < size();
-        }
-
-        @Override
-        public T next() {
-          if (!hasNext()) {
-            throw new NoSuchElementException();
-          }
-          T rval = get(position);
-          position += 1;
-          return rval;
-        }
-
-        @Override
-        public boolean hasPrevious() {
-          return position > 0;
-        }
-
-        @Override
-        public T previous() {
-          if (!hasPrevious()) {
-            throw new NoSuchElementException();
-          }
-          position -= 1;
-          return get(position);
-        }
-
-        @Override
-        public int nextIndex() {
-          return position;
-        }
-
-        @Override
-        public int previousIndex() {
-          return position - 1;
-        }
-
-        @Override
-        public void remove() {
-          throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void set(T e) {
-          throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void add(T e) {
-          throw new UnsupportedOperationException();
-        }
-      }
     }
   }
 
@@ -1101,7 +1042,8 @@ public class PCollectionViews {
 
     @Override
     public Map<K, Iterable<V>> apply(MultimapView<Void, KV<K, V>> primitiveViewT) {
-      // TODO: BEAM-3071 - fix this so that we aren't relying on Java equality and are
+      // TODO: https://github.com/apache/beam/issues/18569 - fix this so that we aren't relying on
+      // Java equality and are
       // using structural value equality.
       Multimap<K, V> multimap = ArrayListMultimap.create();
       for (KV<K, V> elem : primitiveViewT.get(null)) {
@@ -1186,7 +1128,8 @@ public class PCollectionViews {
 
     @Override
     public Map<K, V> apply(MultimapView<Void, KV<K, V>> primitiveViewT) {
-      // TODO: BEAM-3071 - fix this so that we aren't relying on Java equality and are
+      // TODO: https://github.com/apache/beam/issues/18569 - fix this so that we aren't relying on
+      // Java equality and are
       // using structural value equality.
       Map<K, V> map = new HashMap<>();
       for (KV<K, V> elem : primitiveViewT.get(null)) {

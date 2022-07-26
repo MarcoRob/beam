@@ -173,8 +173,7 @@ class _GroupAlsoByWindowDoFn(DoFn):
     key_type, windowed_value_iter_type = trivial_inference.key_value_types(
         input_type)
     value_type = windowed_value_iter_type.inner_type.inner_type
-    return typehints.Iterable[typehints.KV[key_type,
-                                           typehints.Iterable[value_type]]]
+    return typehints.KV[key_type, typehints.Iterable[value_type]]
 
   def start_bundle(self):
     # pylint: disable=wrong-import-order, wrong-import-position
@@ -417,7 +416,8 @@ class _DirectWriteToPubSubFn(DoFn):
     self.timestamp_attribute = transform.timestamp_attribute
     self.with_attributes = transform.with_attributes
 
-    # TODO(BEAM-4275): Add support for id_label and timestamp_attribute.
+    # TODO(https://github.com/apache/beam/issues/18939): Add support for
+    # id_label and timestamp_attribute.
     if transform.id_label:
       raise NotImplementedError(
           'DirectRunner: id_label is not supported for '

@@ -26,9 +26,9 @@ import java.util.concurrent.TimeoutException;
 import org.apache.beam.model.fnexecution.v1.BeamFnApi;
 import org.apache.beam.model.fnexecution.v1.BeamFnDataGrpc;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.fn.data.BeamFnDataBufferingOutboundObserver;
 import org.apache.beam.sdk.fn.data.BeamFnDataGrpcMultiplexer;
 import org.apache.beam.sdk.fn.data.BeamFnDataInboundObserver;
+import org.apache.beam.sdk.fn.data.BeamFnDataOutboundObserver;
 import org.apache.beam.sdk.fn.data.CloseableFnDataReceiver;
 import org.apache.beam.sdk.fn.data.DecodingFnDataReceiver;
 import org.apache.beam.sdk.fn.data.FnDataReceiver;
@@ -37,7 +37,7 @@ import org.apache.beam.sdk.fn.data.LogicalEndpoint;
 import org.apache.beam.sdk.fn.server.FnService;
 import org.apache.beam.sdk.fn.stream.OutboundObserverFactory;
 import org.apache.beam.sdk.options.PipelineOptions;
-import org.apache.beam.vendor.grpc.v1p36p0.io.grpc.stub.StreamObserver;
+import org.apache.beam.vendor.grpc.v1p43p2.io.grpc.stub.StreamObserver;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.util.concurrent.SettableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * that connects.
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class GrpcDataService extends BeamFnDataGrpc.BeamFnDataImplBase
     implements FnService, FnDataService {
@@ -180,11 +180,11 @@ public class GrpcDataService extends BeamFnDataGrpc.BeamFnDataImplBase
         outputLocation.getInstructionId(),
         outputLocation.getTransformId());
     try {
-      return BeamFnDataBufferingOutboundObserver.forLocation(
-          options,
+      return new BeamFnDataOutboundObserver<>(
           outputLocation,
           coder,
-          connectedClient.get(3, TimeUnit.MINUTES).getOutboundObserver());
+          connectedClient.get(3, TimeUnit.MINUTES).getOutboundObserver(),
+          options);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException(e);

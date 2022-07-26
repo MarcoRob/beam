@@ -31,6 +31,7 @@ import org.apache.beam.sdk.annotations.Experimental.Kind;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
 import org.apache.beam.sdk.schemas.logicaltypes.PassThroughLogicalType;
+import org.apache.beam.sdk.schemas.logicaltypes.UuidLogicalType;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -38,7 +39,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /** Beam {@link org.apache.beam.sdk.schemas.Schema.LogicalType} implementations of JDBC types. */
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 class LogicalTypes {
   static final Schema.FieldType JDBC_BIT_TYPE =
@@ -68,6 +69,14 @@ class LogicalTypes {
               FieldType.STRING,
               "",
               Schema.FieldType.DATETIME) {});
+
+  static final Schema.FieldType JDBC_UUID_TYPE =
+      Schema.FieldType.logicalType(new UuidLogicalType());
+
+  static final Schema.FieldType OTHER_AS_STRING_TYPE =
+      Schema.FieldType.logicalType(
+          new PassThroughLogicalType<String>(
+              JDBCType.OTHER.getName(), FieldType.STRING, "", FieldType.STRING) {});
 
   @VisibleForTesting
   static Schema.FieldType fixedLengthString(JDBCType jdbcType, int length) {
@@ -273,9 +282,9 @@ class LogicalTypes {
               || base.round(new MathContext(precision)).compareTo(base) == 0,
           "Expected BigDecimal base to be null or have precision <= %s (was %s), scale <= %s (was %s)",
           precision,
-          base.precision(),
+          (base == null) ? null : base.precision(),
           scale,
-          base.scale());
+          (base == null) ? null : base.scale());
       return base;
     }
   }

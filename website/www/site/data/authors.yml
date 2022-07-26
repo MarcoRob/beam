@@ -21,6 +21,7 @@ aljoscha:
 altay:
   name: Ahmet Altay
   email: altay@apache.org
+  twitter: iridium77
 angoenka:
   name: Ankur Goenka
   email: goenka@apache.org
@@ -36,6 +37,9 @@ chadrik:
 chamikara:
   name: Chamikara Jayalath
   email: chamikara@apache.org
+damccorm:
+  name: Danny McCormick
+  email: dannymccormick@google.com
 davor:
   name: Davor Bonaci
   email: davor@apache.org
@@ -43,6 +47,10 @@ davor:
 dhalperi:
   name: Dan Halperin
   email: dhalperi@apache.org
+  twitter:
+emilymye:
+  name: Emily Ye
+  email: emilyye@apache.org
   twitter:
 fjp:
   name: Frances Perry
@@ -156,6 +164,10 @@ mxm:
   name: Maximilian Michels
   email: mxm@apache.org
   twitter: stadtlegende
+ningk:
+  name: Ning Kang
+  email: ningkang0957@gmail.com
+  twitter: ningkang0957
 pedro:
   name: Pedro Galvan
   email: pedro@sg.com.mx
@@ -204,7 +216,6 @@ yifanzou:
   name: Yifan Zou
   email: yifanzou@apache.org
   twitter:
-
 arturkhanin:
   name: Artur Khanin
   email: artur.khanin@akvelon.com
@@ -217,3 +228,12 @@ alexkosolapov:
   name: Alex Kosolapov
   email: alex.kosolapov@akvelon.com
   twitter:
+hermannb:
+  name: Brittany Hermann
+  email: hermannb@google.com
+iht:
+  name: Israel Herraiz
+  email: ihr@google.com
+yichi:
+  name: Yichi Zhang
+  email: yichi@apache.org

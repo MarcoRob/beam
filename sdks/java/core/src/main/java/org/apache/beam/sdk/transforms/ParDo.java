@@ -388,7 +388,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *     documentation for ParDo</a>
  */
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
   "rawtypes"
 })
 public class ParDo {
@@ -432,7 +432,7 @@ public class ParDo {
     }
   }
 
-  private static void validateStateApplicableForInput(DoFn<?, ?> fn, PCollection<?> input) {
+  private static void validateStateApplicableForInput(PCollection<?> input) {
     Coder<?> inputCoder = input.getCoder();
     checkArgument(
         inputCoder instanceof KvCoder,
@@ -950,7 +950,7 @@ public class ParDo {
 
       DoFnSignature signature = DoFnSignatures.getSignature(fn.getClass());
       if (signature.usesState() || signature.usesTimers()) {
-        validateStateApplicableForInput(fn, input);
+        validateStateApplicableForInput(input);
       }
 
       validateSideInputTypes(sideInputs, fn);

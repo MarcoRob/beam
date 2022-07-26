@@ -36,6 +36,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import net.bytebuddy.description.type.TypeDescription.ForLoadedType;
+import net.bytebuddy.implementation.bytecode.Duplication;
+import net.bytebuddy.implementation.bytecode.StackManipulation;
+import net.bytebuddy.implementation.bytecode.StackManipulation.Compound;
+import net.bytebuddy.implementation.bytecode.TypeCreation;
+import net.bytebuddy.implementation.bytecode.assign.TypeCasting;
+import net.bytebuddy.implementation.bytecode.member.MethodInvocation;
+import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.Conversions;
 import org.apache.avro.LogicalType;
@@ -76,14 +84,6 @@ import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.TypeDescriptor;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.description.type.TypeDescription.ForLoadedType;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.Duplication;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.StackManipulation;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.StackManipulation.Compound;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.TypeCreation;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.assign.TypeCasting;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.implementation.bytecode.member.MethodInvocation;
-import org.apache.beam.vendor.bytebuddy.v1_11_0.net.bytebuddy.matcher.ElementMatchers;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.CaseFormat;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Strings;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Iterables;
@@ -98,7 +98,7 @@ import org.joda.time.ReadableInstant;
 /** Utils to convert AVRO records to Beam rows. */
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
   "rawtypes"
 })
 public class AvroUtils {
@@ -658,11 +658,13 @@ public class AvroUtils {
     @Override
     public List<FieldValueTypeInformation> get(Class<?> clazz, Schema schema) {
       Map<String, String> mapping = getMapping(schema);
+      List<Method> methods = ReflectUtils.getMethods(clazz);
       List<FieldValueTypeInformation> types = Lists.newArrayList();
-      for (Method method : ReflectUtils.getMethods(clazz)) {
+      for (int i = 0; i < methods.size(); ++i) {
+        Method method = methods.get(i);
         if (ReflectUtils.isGetter(method)) {
           FieldValueTypeInformation fieldValueTypeInformation =
-              FieldValueTypeInformation.forGetter(method);
+              FieldValueTypeInformation.forGetter(method, i);
           String name = mapping.get(fieldValueTypeInformation.getName());
           if (name != null) {
             types.add(fieldValueTypeInformation.withName(name));
@@ -706,10 +708,12 @@ public class AvroUtils {
   private static final class AvroPojoFieldValueTypeSupplier implements FieldValueTypeSupplier {
     @Override
     public List<FieldValueTypeInformation> get(Class<?> clazz) {
+      List<java.lang.reflect.Field> classFields = ReflectUtils.getFields(clazz);
       Map<String, FieldValueTypeInformation> types = Maps.newHashMap();
-      for (java.lang.reflect.Field f : ReflectUtils.getFields(clazz)) {
+      for (int i = 0; i < classFields.size(); ++i) {
+        java.lang.reflect.Field f = classFields.get(i);
         if (!f.isAnnotationPresent(AvroIgnore.class)) {
-          FieldValueTypeInformation typeInformation = FieldValueTypeInformation.forField(f);
+          FieldValueTypeInformation typeInformation = FieldValueTypeInformation.forField(f, i);
           AvroName avroname = f.getAnnotation(AvroName.class);
           if (avroname != null) {
             typeInformation = typeInformation.withName(avroname.value());

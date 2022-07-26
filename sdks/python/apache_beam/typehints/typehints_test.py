@@ -48,6 +48,7 @@ from apache_beam.typehints.decorators import get_signature
 from apache_beam.typehints.decorators import get_type_hints
 from apache_beam.typehints.decorators import getcallargs_forhints
 from apache_beam.typehints.typehints import is_consistent_with
+from apache_beam.typehints.typehints import visit_inner_types
 
 
 def check_or_interleave(hint, value, var):
@@ -218,6 +219,7 @@ class UnionHintTestCase(TypeHintTestCase):
         Union[int, Tuple[Any, Any]], Union[Tuple[int, Any], Tuple[Any, int]])
     self.assertCompatible(Union[int, SuperClass], SubClass)
     self.assertCompatible(Union[int, float, SuperClass], Union[int, SubClass])
+    self.assertCompatible(int, Union[()])
 
     self.assertNotCompatible(Union[int, SubClass], SuperClass)
     self.assertNotCompatible(
@@ -306,6 +308,21 @@ class UnionHintTestCase(TypeHintTestCase):
         }), typehints.Union[str, int])
     self.assertEqual(hint.bind_type_variables({A: int, B: int}), int)
 
+  def test_visit_inner_types(self):
+    A = typehints.TypeVariable('A')  # pylint: disable=invalid-name
+    B = typehints.TypeVariable('B')  # pylint: disable=invalid-name
+    hint = typehints.Tuple[Tuple[A, A], B, int]
+
+    user_data = object()
+    nodes = []
+
+    def visitor(hint, arg):
+      self.assertIs(arg, user_data)
+      nodes.append(hint)
+
+    visit_inner_types(hint, visitor, user_data)
+    self.assertEqual(nodes, [hint, Tuple[A, A], A, A, B, int])
+
 
 class OptionalHintTestCase(TypeHintTestCase):
   def test_getitem_sequence_not_allowed(self):
@@ -318,6 +335,14 @@ class OptionalHintTestCase(TypeHintTestCase):
   def test_getitem_proxy_to_union(self):
     hint = typehints.Optional[int]
     self.assertTrue(isinstance(hint, typehints.UnionHint.UnionConstraint))
+
+  def test_is_optional(self):
+    hint1 = typehints.Optional[int]
+    self.assertTrue(typehints.is_nullable(hint1))
+    hint2 = typehints.UnionConstraint({int, bytes})
+    self.assertFalse(typehints.is_nullable(hint2))
+    hint3 = typehints.UnionConstraint({int, bytes, type(None)})
+    self.assertFalse(typehints.is_nullable(hint3))
 
 
 class TupleHintTestCase(TypeHintTestCase):
@@ -1119,7 +1144,7 @@ class CombinedReturnsAndTakesTestCase(TypeHintTestCase):
     # Must re-define since the conditional is in the (maybe)wrapper.
     @check_type_hints
     @with_input_types(a=int)
-    def int_to_str(a):
+    def int_to_str(a):  # pylint: disable=function-redefined
       return str(a)
 
     # With run-time type checking enabled once again the same call-atttempt
@@ -1140,7 +1165,7 @@ class CombinedReturnsAndTakesTestCase(TypeHintTestCase):
     # Must re-define since the conditional is in the (maybe)wrapper.
     @check_type_hints
     @with_output_types(str)
-    def int_to_str(a):
+    def int_to_str(a):  # pylint: disable=function-redefined
       return a
 
     # With type-checking enabled once again we should get a TypeCheckError here.
@@ -1172,7 +1197,7 @@ class CombinedReturnsAndTakesTestCase(TypeHintTestCase):
     @check_type_hints
     @with_output_types(str)
     @with_input_types(a=str)
-    def to_lower(a):
+    def to_lower(a):  # pylint: disable=function-redefined
       return 9
 
     # Modified function now has an invalid return type.
@@ -1196,7 +1221,7 @@ class CombinedReturnsAndTakesTestCase(TypeHintTestCase):
     @check_type_hints
     @with_output_types(typehints.List[typehints.Tuple[int, int]])
     @with_input_types(it=typehints.List[int])
-    def expand_ints(it):
+    def expand_ints(it):  # pylint: disable=function-redefined
       return [str(i) for i in it]
 
     # Modified function now has invalid return type.

@@ -43,7 +43,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /** {@link SchemaCoder} is used as the coder for types that have schemas registered. */
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class SchemaCoder<T> extends CustomCoder<T> {
   protected final Schema schema;
@@ -217,26 +217,6 @@ public class SchemaCoder<T> extends CustomCoder<T> {
   @Override
   public int hashCode() {
     return Objects.hash(schema, typeDescriptor, toRowFunction, fromRowFunction);
-  }
-
-  private static class RowIdentity implements SerializableFunction<Row, Row> {
-    @Override
-    public Row apply(Row input) {
-      return input;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(getClass());
-    }
-
-    @Override
-    public boolean equals(@Nullable Object o) {
-      if (this == o) {
-        return true;
-      }
-      return o != null && getClass() == o.getClass();
-    }
   }
 
   @Override

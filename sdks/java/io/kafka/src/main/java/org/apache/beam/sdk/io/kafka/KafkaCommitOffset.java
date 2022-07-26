@@ -46,8 +46,7 @@ import org.slf4j.LoggerFactory;
 
 /** A {@link PTransform} that commits offsets of {@link KafkaRecord}. */
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
-  "rawtypes" // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes" // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class KafkaCommitOffset<K, V>
     extends PTransform<
@@ -60,13 +59,11 @@ public class KafkaCommitOffset<K, V>
 
   static class CommitOffsetDoFn extends DoFn<KV<KafkaSourceDescriptor, Long>, Void> {
     private static final Logger LOG = LoggerFactory.getLogger(CommitOffsetDoFn.class);
-    private final Map<String, Object> offsetConsumerConfig;
     private final Map<String, Object> consumerConfig;
     private final SerializableFunction<Map<String, Object>, Consumer<byte[], byte[]>>
         consumerFactoryFn;
 
     CommitOffsetDoFn(KafkaIO.ReadSourceDescriptors readSourceDescriptors) {
-      offsetConsumerConfig = readSourceDescriptors.getOffsetConsumerConfig();
       consumerConfig = readSourceDescriptors.getConsumerConfig();
       consumerFactoryFn = readSourceDescriptors.getConsumerFactoryFn();
     }
@@ -75,12 +72,9 @@ public class KafkaCommitOffset<K, V>
     public void processElement(@Element KV<KafkaSourceDescriptor, Long> element) {
       Map<String, Object> updatedConsumerConfig =
           overrideBootstrapServersConfig(consumerConfig, element.getKey());
-      try (Consumer<byte[], byte[]> offsetConsumer =
-          consumerFactoryFn.apply(
-              KafkaIOUtils.getOffsetConsumerConfig(
-                  "commitOffset", offsetConsumerConfig, updatedConsumerConfig))) {
+      try (Consumer<byte[], byte[]> consumer = consumerFactoryFn.apply(updatedConsumerConfig)) {
         try {
-          offsetConsumer.commitSync(
+          consumer.commitSync(
               Collections.singletonMap(
                   element.getKey().getTopicPartition(),
                   new OffsetAndMetadata(element.getValue() + 1)));

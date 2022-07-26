@@ -69,7 +69,7 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 @Category(UsesSchema.class)
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
 })
 public class GroupTest implements Serializable {
   @Rule public final transient TestPipeline pipeline = TestPipeline.create();
@@ -136,7 +136,7 @@ public class GroupTest implements Serializable {
                         toRow.apply(Basic.of("key2", 4L, "value4"))))
                 .build());
 
-    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual, new Basic[0]));
+    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual));
     pipeline.run();
   }
 
@@ -179,7 +179,7 @@ public class GroupTest implements Serializable {
                         toRow.apply(Basic.of("key2", 2L, "value4"))))
                 .build());
 
-    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual, new Basic[0]));
+    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual));
     pipeline.run();
   }
 
@@ -238,7 +238,7 @@ public class GroupTest implements Serializable {
                         toRow.apply(Outer.of(Basic.of("key2", 2L, "value4")))))
                 .build());
 
-    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual, new Outer[0]));
+    PAssert.that(grouped).satisfies(actual -> containsKIterableVs(expected, actual));
     pipeline.run();
   }
 
@@ -617,9 +617,7 @@ public class GroupTest implements Serializable {
     pipeline.run();
   }
 
-  private static <T> Void containsKIterableVs(
-      List<Row> expectedKvs, Iterable<Row> actualKvs, T[] emptyArray) {
-    List<Row> list = Lists.newArrayList(actualKvs);
+  private static <T> Void containsKIterableVs(List<Row> expectedKvs, Iterable<Row> actualKvs) {
     List<Matcher<? super Row>> matchers = new ArrayList<>();
     for (Row expected : expectedKvs) {
       List<Matcher> fieldMatchers = Lists.newArrayList();

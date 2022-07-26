@@ -21,7 +21,7 @@
 // can use this as a sanity check on whether a given pipeline avoids known
 // performance bottlenecks.
 //
-// TODO(BEAM-7374): Add usage documentation.
+// TODO(https://github.com/apache/beam/issues/19402): Add usage documentation.
 package vet
 
 import (
@@ -67,7 +67,7 @@ func Execute(ctx context.Context, p *beam.Pipeline) (beam.PipelineResult, error)
 		e.summary()
 		e.Generate("main")
 		e.diag("*/\n")
-		err := errors.Errorf("pipeline is not performant, see diagnostic summary:\n%s\n%s", string(e.d.Bytes()), string(e.Bytes()))
+		err := errors.Errorf("pipeline is not performant, see diagnostic summary:\n%s\n%s", e.d.String(), string(e.Bytes()))
 		err = errors.WithContext(err, "validating pipeline with vet runner")
 		return nil, errors.SetTopLevelMsg(err, "pipeline is not performant")
 	}
@@ -503,7 +503,7 @@ func (e *Eval) Bytes() []byte {
 // is used.
 func (e *Eval) extractGraphFn(fn *graph.Fn) {
 	if fn.DynFn != nil {
-		// TODO(BEAM-7375) handle dynamics if necessary (probably not since it's got general function handling)
+		// TODO(https://github.com/apache/beam/issues/19401) handle dynamics if necessary (probably not since it's got general function handling)
 		e.diag(" dynamic function")
 		return
 	}

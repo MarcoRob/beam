@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import javax.annotation.Nullable;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers.PendingJobManager;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.Write.CreateDisposition;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.Write.WriteDisposition;
@@ -37,12 +36,14 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.display.DisplayData;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ArrayListMultimap;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Iterables;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Lists;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Multimap;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,10 +51,8 @@ import org.slf4j.LoggerFactory;
  * Copies temporary tables to destination table. The input element is an {@link Iterable} that
  * provides the list of all temporary tables created for a given {@link TableDestination}.
  */
-@SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
-})
-class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>>, Void> {
+class WriteRename
+    extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>>, TableDestination> {
   private static final Logger LOG = LoggerFactory.getLogger(WriteRename.class);
 
   private final BigQueryServices bqServices;
@@ -65,22 +64,25 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
   private final WriteDisposition firstPaneWriteDisposition;
   private final CreateDisposition firstPaneCreateDisposition;
   private final int maxRetryJobs;
-  private final String kmsKey;
-  private final ValueProvider<String> loadJobProjectId;
+  private final @Nullable String kmsKey;
+  private final @Nullable ValueProvider<String> loadJobProjectId;
   private transient @Nullable DatasetService datasetService;
 
   private static class PendingJobData {
     final BigQueryHelpers.PendingJob retryJob;
     final TableDestination tableDestination;
     final List<TableReference> tempTables;
+    final BoundedWindow window;
 
     public PendingJobData(
         BigQueryHelpers.PendingJob retryJob,
         TableDestination tableDestination,
-        List<TableReference> tempTables) {
+        List<TableReference> tempTables,
+        BoundedWindow window) {
       this.retryJob = retryJob;
       this.tableDestination = tableDestination;
       this.tempTables = tempTables;
+      this.window = window;
     }
   }
   // All pending copy jobs.
@@ -92,8 +94,8 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
       WriteDisposition writeDisposition,
       CreateDisposition createDisposition,
       int maxRetryJobs,
-      String kmsKey,
-      ValueProvider<String> loadJobProjectId) {
+      @Nullable String kmsKey,
+      @Nullable ValueProvider<String> loadJobProjectId) {
     this.bqServices = bqServices;
     this.jobIdToken = jobIdToken;
     this.firstPaneWriteDisposition = writeDisposition;
@@ -122,7 +124,9 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
 
   @ProcessElement
   public void processElement(
-      @Element Iterable<KV<TableDestination, WriteTables.Result>> element, ProcessContext c)
+      @Element Iterable<KV<TableDestination, WriteTables.Result>> element,
+      ProcessContext c,
+      BoundedWindow window)
       throws Exception {
     Multimap<TableDestination, WriteTables.Result> tempTables = ArrayListMultimap.create();
     for (KV<TableDestination, WriteTables.Result> entry : element) {
@@ -133,7 +137,7 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
       // Process each destination table.
       // Do not copy if no temp tables are provided.
       if (!entry.getValue().isEmpty()) {
-        pendingJobs.add(startWriteRename(entry.getKey(), entry.getValue(), c));
+        pendingJobs.add(startWriteRename(entry.getKey(), entry.getValue(), c, window));
       }
     }
   }
@@ -155,6 +159,8 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
                         .setTableId(BigQueryHelpers.stripPartitionDecorator(ref.getTableId())),
                     pendingJob.tableDestination.getTableDescription());
               }
+              c.output(
+                  pendingJob.tableDestination, pendingJob.window.maxTimestamp(), pendingJob.window);
               removeTemporaryTables(datasetService, pendingJob.tempTables);
               return null;
             } catch (IOException | InterruptedException e) {
@@ -175,15 +181,17 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
   private PendingJobData startWriteRename(
       TableDestination finalTableDestination,
       Iterable<WriteTables.Result> tempTableNames,
-      ProcessContext c)
+      ProcessContext c,
+      BoundedWindow window)
       throws Exception {
     // The pane may have advanced either here due to triggering or due to an upstream trigger. We
     // check the upstream
     // trigger to handle the case where an earlier pane triggered the single-partition path. If this
     // happened, then the
     // table will already exist so we want to append to the table.
+    WriteTables.@Nullable Result firstTempTable = Iterables.getFirst(tempTableNames, null);
     boolean isFirstPane =
-        Iterables.getFirst(tempTableNames, null).isFirstPane() && c.pane().isFirst();
+        firstTempTable != null && firstTempTable.isFirstPane() && c.pane().isFirst();
     WriteDisposition writeDisposition =
         isFirstPane ? firstPaneWriteDisposition : WriteDisposition.WRITE_APPEND;
     CreateDisposition createDisposition =
@@ -211,7 +219,7 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
             createDisposition,
             kmsKey,
             loadJobProjectId);
-    return new PendingJobData(retryJob, finalTableDestination, tempTables);
+    return new PendingJobData(retryJob, finalTableDestination, tempTables, window);
   }
 
   private BigQueryHelpers.PendingJob startCopy(
@@ -222,8 +230,8 @@ class WriteRename extends DoFn<Iterable<KV<TableDestination, WriteTables.Result>
       List<TableReference> tempTables,
       WriteDisposition writeDisposition,
       CreateDisposition createDisposition,
-      String kmsKey,
-      ValueProvider<String> loadJobProjectId) {
+      @Nullable String kmsKey,
+      @Nullable ValueProvider<String> loadJobProjectId) {
     JobConfigurationTableCopy copyConfig =
         new JobConfigurationTableCopy()
             .setSourceTables(tempTables)

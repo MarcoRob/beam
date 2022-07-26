@@ -174,7 +174,7 @@ type DataChannel struct {
 
 func newDataChannel(ctx context.Context, port exec.Port) (*DataChannel, error) {
 	ctx, cancelFn := context.WithCancel(ctx)
-	cc, err := dial(ctx, port.URL, 15*time.Second)
+	cc, err := dial(ctx, port.URL, "data", 15*time.Second)
 	if err != nil {
 		cancelFn()
 		return nil, errors.Wrapf(err, "failed to connect to data service at %v", port.URL)
@@ -185,7 +185,10 @@ func newDataChannel(ctx context.Context, port exec.Port) (*DataChannel, error) {
 		cancelFn()
 		return nil, errors.Wrapf(err, "failed to create data client on %v", port.URL)
 	}
-	return makeDataChannel(ctx, port.URL, client, cancelFn), nil
+	return makeDataChannel(ctx, port.URL, client, func() {
+		cc.Close()
+		cancelFn()
+	}), nil
 }
 
 func makeDataChannel(ctx context.Context, id string, client dataClient, cancelFn context.CancelFunc) *DataChannel {
@@ -492,7 +495,7 @@ func (w *dataWriter) send(msg *fnpb.Elements) error {
 			for err == nil {
 				// Per GRPC stream documentation, if there's an EOF, we must call Recv
 				// until a non-nil error is returned, to ensure resources are cleaned up.
-				// https://godoc.org/google.golang.org/grpc#ClientConn.NewStream
+				// https://pkg.go.dev/google.golang.org/grpc#ClientConn.NewStream
 				_, err = w.ch.client.Recv()
 			}
 		}
@@ -524,7 +527,7 @@ func (w *dataWriter) Close() error {
 			{
 				InstructionId: string(w.id.instID),
 				TransformId:   w.id.ptransformID,
-				// TODO(BEAM-13142): Set IsLast true on final flush instead of w/empty sentinel?
+				// TODO(https://github.com/apache/beam/issues/21164): Set IsLast true on final flush instead of w/empty sentinel?
 				// Empty data == sentinel
 				IsLast: true,
 			},

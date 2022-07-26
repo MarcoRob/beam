@@ -46,12 +46,14 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.POutput;
 import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.values.TupleTag;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 
 /** A general {@link TableProvider} for IOs for consumption by Beam SQL. */
 @Internal
 @Experimental
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public abstract class SchemaIOTableProviderWrapper extends InMemoryMetaTableProvider
     implements Serializable {
@@ -131,7 +133,7 @@ public abstract class SchemaIOTableProviderWrapper extends InMemoryMetaTableProv
       if (!(filters instanceof DefaultTableFilter)) {
         throw new UnsupportedOperationException(
             String.format(
-                "Filter pushdown is not yet supported in %s. BEAM-12663",
+                "Filter pushdown is not yet supported in %s. https://github.com/apache/beam/issues/21001",
                 SchemaIOTableWrapper.class));
       }
       if (!fieldNames.isEmpty()) {
@@ -143,7 +145,8 @@ public abstract class SchemaIOTableProviderWrapper extends InMemoryMetaTableProv
           FieldAccessDescriptor fieldAccessDescriptor =
               FieldAccessDescriptor.withFieldNames(fieldNames);
           readerTransform =
-              projectionProducer.actuateProjectionPushdown("output", fieldAccessDescriptor);
+              projectionProducer.actuateProjectionPushdown(
+                  ImmutableMap.of(new TupleTag<PCollection<Row>>("output"), fieldAccessDescriptor));
         } else {
           throw new UnsupportedOperationException(
               String.format("%s does not support projection pushdown.", this.getClass()));

@@ -50,8 +50,6 @@ import org.apache.kudu.client.KuduPredicate;
 import org.apache.kudu.client.Operation;
 import org.apache.kudu.client.RowResult;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A bounded source and sink for Kudu.
@@ -62,8 +60,8 @@ import org.slf4j.LoggerFactory;
  * <h3>Reading from Kudu</h3>
  *
  * <p>{@code KuduIO} provides a source to read and returns a bounded collection of entities as
- * {@code PCollection&lt;T&gt;}. An entity is built by parsing a Kudu {@link RowResult} using the
- * provided {@link SerializableFunction}.
+ * {@code PCollection<T>}. An entity is built by parsing a Kudu {@link RowResult} using the provided
+ * {@link SerializableFunction}.
  *
  * <p>The following example illustrates various options for configuring the IO:
  *
@@ -122,11 +120,10 @@ import org.slf4j.LoggerFactory;
  */
 @Experimental(Kind.SOURCE_SINK)
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class KuduIO {
-  private static final Logger LOG = LoggerFactory.getLogger(KuduIO.class);
 
   private KuduIO() {}
 

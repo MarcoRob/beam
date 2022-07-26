@@ -74,7 +74,10 @@ import org.slf4j.LoggerFactory;
  * <p>Uses a random temporary Pubsub topic for synchronization.
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
+  // TODO(https://github.com/apache/beam/issues/21230): Remove when new version of
+  // errorprone is released (2.11.0)
+  "unused"
 })
 public class TestPubsubSignal implements TestRule {
   private static final Logger LOG = LoggerFactory.getLogger(TestPubsubSignal.class);
@@ -82,10 +85,6 @@ public class TestPubsubSignal implements TestRule {
   private static final String RESULT_SUCCESS_MESSAGE = "SUCCESS";
   private static final String START_TOPIC_NAME = "start";
   private static final String START_SIGNAL_MESSAGE = "START SIGNAL";
-  private static final Integer DEFAULT_ACK_DEADLINE_SECONDS = 60;
-
-  private static final String NO_ID_ATTRIBUTE = null;
-  private static final String NO_TIMESTAMP_ATTRIBUTE = null;
 
   private final TestPubsubOptions pipelineOptions;
   private final String pubsubEndpoint;
@@ -404,7 +403,6 @@ public class TestPubsubSignal implements TestRule {
    * "FAILURE".
    */
   static class StatefulPredicateCheck<T> extends DoFn<KV<String, ? extends T>, String> {
-    private final SerializableFunction<T, String> formatter;
     private SerializableFunction<Set<T>, Boolean> successPredicate;
     // keep all events seen so far in the state cell
 
@@ -418,7 +416,6 @@ public class TestPubsubSignal implements TestRule {
         SerializableFunction<T, String> formatter,
         SerializableFunction<Set<T>, Boolean> successPredicate) {
       this.seenEvents = StateSpecs.bag(coder);
-      this.formatter = formatter;
       this.successPredicate = successPredicate;
     }
 

@@ -257,8 +257,8 @@ import org.slf4j.LoggerFactory;
  */
 @Experimental(Kind.SOURCE_SINK)
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class ParquetIO {
   private static final Logger LOG = LoggerFactory.getLogger(ParquetIO.class);
@@ -898,10 +898,9 @@ public class ParquetIO {
           OutputReceiver<T> outputReceiver)
           throws Exception {
         LOG.debug(
-            "start "
-                + tracker.currentRestriction().getFrom()
-                + " to "
-                + tracker.currentRestriction().getTo());
+            "start {} to {}",
+            tracker.currentRestriction().getFrom(),
+            tracker.currentRestriction().getTo());
         Configuration conf = getConfWithModelClass();
         GenericData model = null;
         if (modelClass != null) {

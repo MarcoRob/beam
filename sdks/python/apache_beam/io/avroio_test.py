@@ -37,11 +37,14 @@ from apache_beam.io import iobase
 from apache_beam.io import source_test_utils
 from apache_beam.io.avroio import _create_avro_sink  # For testing
 from apache_beam.io.avroio import _create_avro_source  # For testing
+from apache_beam.io.filesystems import FileSystems
 from apache_beam.testing.test_pipeline import TestPipeline
 from apache_beam.testing.util import assert_that
 from apache_beam.testing.util import equal_to
 from apache_beam.transforms.display import DisplayData
 from apache_beam.transforms.display_test import DisplayDataItemMatcher
+from apache_beam.transforms.userstate import CombiningValueStateSpec
+from apache_beam.utils.timestamp import Timestamp
 
 # Import snappy optionally; some tests will be skipped when import fails.
 try:
@@ -95,7 +98,13 @@ class AvroBase(object):
         os.remove(path)
     self._temp_files = []
 
-  def _write_data(self, directory, prefix, codec, count, sync_interval):
+  def _write_data(
+      self,
+      directory=None,
+      prefix=None,
+      codec=None,
+      count=None,
+      sync_interval=None):
     raise NotImplementedError
 
   def _write_pattern(self, num_files, return_filenames=False):
@@ -384,6 +393,94 @@ class AvroBase(object):
           | avroio.ReadAllFromAvro(with_filename=True),
           equal_to(result))
 
+  class _WriteFilesFn(beam.DoFn):
+    """writes a couple of files with deferral."""
+
+    COUNT_STATE = CombiningValueStateSpec('count', combine_fn=sum)
+
+    def __init__(self, SCHEMA, RECORDS, tempdir):
+      self._thread = None
+      self.SCHEMA = SCHEMA
+      self.RECORDS = RECORDS
+      self.tempdir = tempdir
+
+    def get_expect(self, match_updated_files):
+      results_file1 = [('file1', x) for x in self.gen_records(1)]
+      results_file2 = [('file2', x) for x in self.gen_records(3)]
+      if match_updated_files:
+        results_file1 += [('file1', x) for x in self.gen_records(2)]
+      return results_file1 + results_file2
+
+    def gen_records(self, count):
+      return self.RECORDS * (count // len(self.RECORDS)) + self.RECORDS[:(
+          count % len(self.RECORDS))]
+
+    def process(self, element, count_state=beam.DoFn.StateParam(COUNT_STATE)):
+      counter = count_state.read()
+      if counter == 0:
+        count_state.add(1)
+        with open(FileSystems.join(self.tempdir, 'file1'), 'wb') as f:
+          writer(f, self.SCHEMA, self.gen_records(2))
+        with open(FileSystems.join(self.tempdir, 'file2'), 'wb') as f:
+          writer(f, self.SCHEMA, self.gen_records(3))
+      # convert dumb key to basename in output
+      basename = FileSystems.split(element[1][0])[1]
+      content = element[1][1]
+      yield basename, content
+
+  def test_read_all_continuously_new(self):
+    with TestPipeline() as pipeline:
+      tempdir = tempfile.mkdtemp()
+      writer_fn = self._WriteFilesFn(self.SCHEMA, self.RECORDS, tempdir)
+      with open(FileSystems.join(tempdir, 'file1'), 'wb') as f:
+        writer(f, writer_fn.SCHEMA, writer_fn.gen_records(1))
+      match_pattern = FileSystems.join(tempdir, '*')
+      interval = 0.5
+      last = 2
+
+      p_read_once = (
+          pipeline
+          | 'Continuously read new files' >> avroio.ReadAllFromAvroContinuously(
+              match_pattern,
+              with_filename=True,
+              start_timestamp=Timestamp.now(),
+              interval=interval,
+              stop_timestamp=Timestamp.now() + last,
+              match_updated_files=False)
+          | 'add dumb key' >> beam.Map(lambda x: (0, x))
+          | 'Write files on-the-fly' >> beam.ParDo(writer_fn))
+      assert_that(
+          p_read_once,
+          equal_to(writer_fn.get_expect(match_updated_files=False)),
+          label='assert read new files results')
+
+  def test_read_all_continuously_update(self):
+    with TestPipeline() as pipeline:
+      tempdir = tempfile.mkdtemp()
+      writer_fn = self._WriteFilesFn(self.SCHEMA, self.RECORDS, tempdir)
+      with open(FileSystems.join(tempdir, 'file1'), 'wb') as f:
+        writer(f, writer_fn.SCHEMA, writer_fn.gen_records(1))
+      match_pattern = FileSystems.join(tempdir, '*')
+      interval = 0.5
+      last = 2
+
+      p_read_upd = (
+          pipeline
+          | 'Continuously read updated files' >>
+          avroio.ReadAllFromAvroContinuously(
+              match_pattern,
+              with_filename=True,
+              start_timestamp=Timestamp.now(),
+              interval=interval,
+              stop_timestamp=Timestamp.now() + last,
+              match_updated_files=True)
+          | 'add dumb key' >> beam.Map(lambda x: (0, x))
+          | 'Write files on-the-fly' >> beam.ParDo(writer_fn))
+      assert_that(
+          p_read_upd,
+          equal_to(writer_fn.get_expect(match_updated_files=True)),
+          label='assert read updated files results')
+
   def test_sink_transform(self):
     with tempfile.NamedTemporaryFile() as dst:
       path = dst.name
@@ -419,6 +516,21 @@ class AvroBase(object):
             | avroio.ReadFromAvro(path + '*') \
             | beam.Map(json.dumps)
         assert_that(readback, equal_to([json.dumps(r) for r in self.RECORDS]))
+
+  def test_writer_open_and_close(self):
+    # Create and then close a temp file so we can manually open it later
+    dst = tempfile.NamedTemporaryFile(delete=False)
+    dst.close()
+
+    schema = parse_schema(json.loads(self.SCHEMA_STRING))
+    sink = _create_avro_sink(
+        'some_avro_sink', schema, 'null', '.end', 0, None, 'application/x-avro')
+
+    w = sink.open(dst.name)
+
+    sink.close(w)
+
+    os.unlink(dst.name)
 
 
 class TestFastAvro(AvroBase, unittest.TestCase):

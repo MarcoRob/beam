@@ -75,7 +75,7 @@ import org.slf4j.LoggerFactory;
  * </ul>
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class MemoryMonitor implements Runnable {
   private static final Logger LOG = LoggerFactory.getLogger(MemoryMonitor.class);
@@ -166,6 +166,7 @@ public class MemoryMonitor implements Runnable {
    * before dumping the heap, this block of memory will be garbage collected, thus giving dumpHeap()
    * enough space to dump the heap.
    */
+  @SuppressWarnings("unused")
   @SuppressFBWarnings("unused")
   private byte[] reservedForDumpingHeap = new byte[HEAP_DUMP_RESERVED_BYTES];
 

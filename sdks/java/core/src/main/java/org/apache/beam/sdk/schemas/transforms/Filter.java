@@ -82,7 +82,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 @Experimental(Kind.SCHEMAS)
 @SuppressWarnings({
-  "nullness", // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness", // TODO(https://github.com/apache/beam/issues/20497)
   "rawtypes"
 })
 public class Filter {
@@ -92,7 +92,6 @@ public class Filter {
 
   /** Implementation of the filter. */
   public static class Inner<T> extends PTransform<PCollection<T>, PCollection<T>> {
-    private RowSelector rowSelector;
 
     @AutoValue
     abstract static class FilterDescription<FieldT> implements Serializable {
@@ -124,7 +123,7 @@ public class Filter {
         abstract FilterDescription<FieldT> build();
       }
 
-      transient RowSelector rowSelector;
+      private transient RowSelector rowSelector;
 
       public RowSelector getRowSelector() {
         if (rowSelector == null) {

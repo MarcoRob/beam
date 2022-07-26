@@ -28,17 +28,14 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Exposes {@link DebeziumIO.Read} as an external transform for cross-language usage. */
 @Experimental(Experimental.Kind.PORTABILITY)
 @AutoService(ExternalTransformRegistrar.class)
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+  "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
 public class DebeziumTransformRegistrar implements ExternalTransformRegistrar {
-  private static final Logger LOG = LoggerFactory.getLogger(DebeziumTransformRegistrar.class);
   public static final String READ_JSON_URN = "beam:transform:org.apache.beam:debezium_read:v1";
 
   @Override

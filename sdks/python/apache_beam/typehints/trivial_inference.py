@@ -49,7 +49,7 @@ def instance_to_type(o):
   if o is None:
     return type(None)
   elif t == pvalue.Row:
-    return row_type.RowTypeConstraint([
+    return row_type.RowTypeConstraint.from_fields([
         (name, instance_to_type(value)) for name, value in o.as_dict().items()
     ])
   elif t not in typehints.DISALLOWED_PRIMITIVE_TYPES:
@@ -227,6 +227,9 @@ def element_type(hint):
     return hint.inner_type
   elif isinstance(hint, typehints.TupleHint.TupleConstraint):
     return typehints.Union[hint.tuple_types]
+  elif isinstance(hint,
+                  typehints.UnionHint.UnionConstraint) and not hint.union_types:
+    return hint
   return Any
 
 
@@ -238,6 +241,9 @@ def key_value_types(kv_type):
   if (isinstance(kv_type, typehints.TupleHint.TupleConstraint) and
       len(kv_type.tuple_types) == 2):
     return kv_type.tuple_types
+  elif isinstance(
+      kv_type, typehints.UnionHint.UnionConstraint) and not kv_type.union_types:
+    return kv_type, kv_type
   return Any, Any
 
 
@@ -432,8 +438,11 @@ def infer_return_type_func(f, input_types, debug=False, depth=0):
           from apache_beam.pvalue import Row
           if state.stack[-pop_count].value == Row:
             fields = state.stack[-1].value
-            return_type = row_type.RowTypeConstraint(
-                zip(fields, Const.unwrap_all(state.stack[-pop_count + 1:-1])))
+            return_type = row_type.RowTypeConstraint.from_fields(
+                list(
+                    zip(
+                        fields,
+                        Const.unwrap_all(state.stack[-pop_count + 1:-1]))))
           else:
             return_type = Any
         else:
@@ -456,6 +465,9 @@ def infer_return_type_func(f, input_types, debug=False, depth=0):
             args = [args]
           elif isinstance(args, typehints.TupleConstraint):
             args = list(args._inner_types())
+          elif isinstance(args, typehints.SequenceTypeConstraint):
+            args = [element_type(args)] * len(
+                inspect.getfullargspec(_callable.value).args)
           return_type = infer_return_type(
               _callable.value, args, debug=debug, depth=depth - 1)
       else:

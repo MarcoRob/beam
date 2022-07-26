@@ -29,6 +29,7 @@ class CommonJobProperties {
   static String checkoutDir = 'src'
   final static String JAVA_8_HOME = '/usr/lib/jvm/java-8-openjdk-amd64'
   final static String JAVA_11_HOME = '/usr/lib/jvm/java-11-openjdk-amd64'
+  final static String JAVA_17_HOME = '/usr/lib/jvm/java-17-openjdk-amd64'
   final static String PYTHON = pythonTestProperties.DEFAULT_INTERPRETER
 
   // Sets common top-level job properties for main repository jobs.
@@ -168,7 +169,7 @@ class CommonJobProperties {
   }
 
   // Default maxWorkers is 12 to avoid jvm oom as in [BEAM-4847].
-  static void setGradleSwitches(context, maxWorkers = 12) {
+  static void setGradleSwitches(context, maxWorkers = 8) {
     def defaultSwitches = [
       // Continue the build even if there is a failure to show as many potential failures as possible.
       '--continue',
@@ -181,9 +182,10 @@ class CommonJobProperties {
 
     // Ensure that parallel workers don't exceed total available memory.
 
-    // For [BEAM-4847], hardcode Xms and Xmx to reasonable values (2g/4g).
+    // Workers are n1-highmem-16 with 104GB
+    // 2 Jenkins executors * 8 Gradle workers * 6GB = 96GB
     context.switches("-Dorg.gradle.jvmargs=-Xms2g")
-    context.switches("-Dorg.gradle.jvmargs=-Xmx4g")
+    context.switches("-Dorg.gradle.jvmargs=-Xmx6g")
 
     // Disable file system watching for CI builds
     // Builds are performed on a clean clone and files aren't modified, so
@@ -218,7 +220,7 @@ class CommonJobProperties {
 
   // Sets common config for jobs which run on a schedule; optionally on push
   static void setAutoJob(context,
-      String buildSchedule = '0 */6 * * *',
+      String buildSchedule = 'H H/6 * * *',
       notifyAddress = 'builds@beam.apache.org',
       triggerOnCommit = false,
       emailIndividuals = false) {

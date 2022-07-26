@@ -51,6 +51,7 @@ import org.apache.flink.streaming.util.TestStreamEnvironment;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
@@ -120,6 +121,7 @@ public class FlinkRequiresStableInputTest {
    * restore the savepoint to check if we produce impotent results.
    */
   @Test(timeout = 30_000)
+  @Ignore("https://github.com/apache/beam/issues/21333")
   public void testParDoRequiresStableInput() throws Exception {
     FlinkPipelineOptions options = FlinkPipelineOptions.defaults();
     options.setParallelism(1);
@@ -186,7 +188,7 @@ public class FlinkRequiresStableInputTest {
     // try multiple times because the job might not be ready yet
     for (int i = 0; i < 10; i++) {
       try {
-        return flinkCluster.triggerSavepoint(jobID, null, false).get();
+        return MiniClusterCompat.triggerSavepoint(flinkCluster, jobID, null, false).get();
       } catch (Exception e) {
         exception = e;
         Thread.sleep(100);

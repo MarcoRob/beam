@@ -20,9 +20,17 @@ import (
 	"beam.apache.org/playground/backend/internal/cache"
 	"beam.apache.org/playground/backend/internal/cache/local"
 	"beam.apache.org/playground/backend/internal/cache/redis"
+	"beam.apache.org/playground/backend/internal/cloud_bucket"
+	"beam.apache.org/playground/backend/internal/db"
+	"beam.apache.org/playground/backend/internal/db/datastore"
+	"beam.apache.org/playground/backend/internal/db/mapper"
+	"beam.apache.org/playground/backend/internal/db/schema"
+	"beam.apache.org/playground/backend/internal/db/schema/migration"
 	"beam.apache.org/playground/backend/internal/environment"
 	"beam.apache.org/playground/backend/internal/logger"
+	"beam.apache.org/playground/backend/internal/utils"
 	"context"
+	"fmt"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"google.golang.org/grpc"
 )
@@ -36,15 +44,50 @@ func runServer() error {
 	if err != nil {
 		return err
 	}
+
+	props, err := environment.NewProperties(envService.ApplicationEnvs.PropertyPath())
+	if err != nil {
+		return err
+	}
+
+	logger.SetupLogger(ctx, envService.ApplicationEnvs.LaunchSite(), envService.ApplicationEnvs.GoogleProjectId())
+
 	grpcServer := grpc.NewServer()
 
 	cacheService, err := setupCache(ctx, envService.ApplicationEnvs)
 	if err != nil {
 		return err
 	}
+
+	var dbClient db.Database
+	var entityMapper mapper.EntityMapper
+
+	// Examples catalog should be retrieved and saved to cache only if the server doesn't suppose to run code, i.e. SDK is unspecified
+	// Database setup only if the server doesn't suppose to run code, i.e. SDK is unspecified
+	if envService.BeamSdkEnvs.ApacheBeamSdk == pb.Sdk_SDK_UNSPECIFIED {
+		err = setupExamplesCatalog(ctx, cacheService, envService.ApplicationEnvs.BucketName())
+		if err != nil {
+			return err
+		}
+
+		dbClient, err = datastore.New(ctx, envService.ApplicationEnvs.GoogleProjectId())
+		if err != nil {
+			return err
+		}
+
+		if err = setupDBStructure(ctx, dbClient, &envService.ApplicationEnvs, props); err != nil {
+			return err
+		}
+
+		entityMapper = mapper.New(&envService.ApplicationEnvs, props)
+	}
+
 	pb.RegisterPlaygroundServiceServer(grpcServer, &playgroundController{
 		env:          envService,
 		cacheService: cacheService,
+		db:           dbClient,
+		props:        props,
+		entityMapper: entityMapper,
 	})
 
 	errChan := make(chan error)
@@ -54,7 +97,7 @@ func runServer() error {
 		go listenTcp(ctx, errChan, envService.NetworkEnvs, grpcServer)
 	case "HTTP":
 		handler := Wrap(grpcServer, getGrpcWebOptions())
-		go listenHttp(ctx, errChan, envService.NetworkEnvs, handler)
+		go listenHttp(ctx, errChan, envService, handler)
 	}
 
 	for {
@@ -104,6 +147,47 @@ func setupCache(ctx context.Context, appEnv environment.ApplicationEnvs) (cache.
 	default:
 		return local.New(ctx), nil
 	}
+}
+
+// setupExamplesCatalog saves precompiled objects catalog from storage to cache
+func setupExamplesCatalog(ctx context.Context, cacheService cache.Cache, bucketName string) error {
+	catalog, err := utils.GetCatalogFromStorage(ctx, bucketName)
+	if err != nil {
+		return err
+	}
+	if err = cacheService.SetCatalog(ctx, catalog); err != nil {
+		logger.Errorf("GetPrecompiledObjects(): cache error: %s", err.Error())
+	}
+
+	bucket := cloud_bucket.New()
+	defaultPrecompiledObjects, err := bucket.GetDefaultPrecompiledObjects(ctx, bucketName)
+	if err != nil {
+		return err
+	}
+	for sdk, precompiledObject := range defaultPrecompiledObjects {
+		if err := cacheService.SetDefaultPrecompiledObject(ctx, sdk, precompiledObject); err != nil {
+			logger.Errorf("GetPrecompiledObjects(): cache error: %s", err.Error())
+			return err
+		}
+	}
+	return nil
+}
+
+// setupDBStructure initializes the data structure
+func setupDBStructure(ctx context.Context, db db.Database, appEnv *environment.ApplicationEnvs, props *environment.Properties) error {
+	versions := []schema.Version{new(migration.InitialStructure)}
+	dbSchema := schema.New(ctx, db, appEnv, props, versions)
+	actualSchemaVersion, err := dbSchema.InitiateData()
+	if err != nil {
+		return err
+	}
+	if actualSchemaVersion == "" {
+		errMsg := "schema version must not be empty"
+		logger.Error(errMsg)
+		return fmt.Errorf(errMsg)
+	}
+	appEnv.SetSchemaVersion(actualSchemaVersion)
+	return nil
 }
 
 func main() {

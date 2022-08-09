@@ -35,11 +35,17 @@ jobs:
       fail-fast: false
     steps:
       - name: Get number of available processors
-        id: availableProcessors
+        id: get_available_processors
         run: |
-          echo 'cores=$(grep -c ^processor /proc/cpuinfo)'
-          echo 'availablecores=$((3*cores))'
-          echo '::set-output name=CORES::echo $availablecores'
+          CORES=$(grep -c ^processor /proc/cpuinfo)
+#         Increase parallel worker threads above processor limit since most time is
+#         spent waiting on Dataflow jobs. ValidatesRunner tests on Dataflow are slow
+#         because each one launches a Dataflow job with about 3 mins of overhead.
+#         3 x num_cores strikes a good balance between maxing out parallelism without
+#         overloading the machines.
+          BALANCE_CORES=$((3*CORES))
+          echo $BALANCE_CORES
+          echo "::set-output name=get_available_processors::$BALANCE_CORES"
       - name: Checkout code
         uses: actions/checkout@v2
         with:
@@ -49,4 +55,4 @@ jobs:
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
           gradle-command: :runners:google-cloud-dataflow-java:validatesRunnerV2'
-          gradle-switches: --max-workers=${{ steps.availableProcessors.outputs.CORES }}
+          gradle-switches: --max-workers=${{ steps.get_available_processors.outputs.BALANCE_CORES }}

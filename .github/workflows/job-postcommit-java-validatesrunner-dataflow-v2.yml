@@ -39,7 +39,7 @@ jobs:
         run: |
           echo 'cores=$(grep -c ^processor /proc/cpuinfo)'
           echo 'availablecores=$((3*cores))'
-          echo '::set-output name=CORES::$availablecores'
+          echo '::set-output name=CORES::echo $availablecores'
       - name: Checkout code
         uses: actions/checkout@v2
         with:

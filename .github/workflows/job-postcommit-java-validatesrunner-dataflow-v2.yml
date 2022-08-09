@@ -49,5 +49,5 @@ jobs:
       - name: Gradle Java VR Dataflow V2
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
-          gradle-command: :runners:google-cloud-dataflow-java:validatesRunnerV2'
+          gradle-command: :runners:google-cloud-dataflow-java:validatesRunnerV2
           gradle-switches: --max-workers=${{ steps.get_available_processors.outputs.BALANCE_CORES }}

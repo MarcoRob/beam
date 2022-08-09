@@ -40,7 +40,7 @@ jobs:
           CORES=$(grep -c ^processor /proc/cpuinfo)
           BALANCE_CORES=$((3*CORES))
           echo $BALANCE_CORES
-          echo "::set-output name=get_available_processors::$BALANCE_CORES"
+          echo "::set-output name=BALANCE_CORES::$BALANCE_CORES"
       - name: Checkout code
         uses: actions/checkout@v2
         with:

@@ -38,11 +38,6 @@ jobs:
         id: get_available_processors
         run: |
           CORES=$(grep -c ^processor /proc/cpuinfo)
-#         Increase parallel worker threads above processor limit since most time is
-#         spent waiting on Dataflow jobs. ValidatesRunner tests on Dataflow are slow
-#         because each one launches a Dataflow job with about 3 mins of overhead.
-#         3 x num_cores strikes a good balance between maxing out parallelism without
-#         overloading the machines.
           BALANCE_CORES=$((3*CORES))
           echo $BALANCE_CORES
           echo "::set-output name=get_available_processors::$BALANCE_CORES"

@@ -39,7 +39,7 @@ jobs:
         run: |
           echo 'cores=$(grep -c ^processor /proc/cpuinfo)'
           echo 'availablecores=$((3*cores))'
-  #        echo '::set-output name=CORES::availablecores'
+          echo '::set-output name=CORES::$availablecores'
       - name: Checkout code
         uses: actions/checkout@v2
         with:
@@ -49,4 +49,4 @@ jobs:
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
           gradle-command: :runners:google-cloud-dataflow-java:validatesRunnerV2'
-          gradle-switches: --max-workers=${{ $availableCores }}
+          gradle-switches: --max-workers=${{ steps.availableProcessors.outputs.CORES }}

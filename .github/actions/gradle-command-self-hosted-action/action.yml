@@ -23,12 +23,16 @@ runs:
       uses: actions/setup-java@v1
       with:
         java-version: 8
+    - name: Install Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: "1.18.0"
     - name: Remove default github maven configuration
       # This step is a workaround to avoid a decryption issue of Beam's
       # gradle-command-action plugin and github's provided maven
       # settings.xml file
       shell: bash
       run: rm ~/.m2/settings.xml
-    - name: Run Gradle Command
+    - name: Run Action
       shell: bash
       run: ./gradlew ${{ inputs.gradle-command }} ${{ inputs.gradle-switches }}

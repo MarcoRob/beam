@@ -28,7 +28,7 @@ on:
     # paths: '^runners/google-cloud-dataflow-java/*'
 
 jobs:
-  java_vr_dataflow_v2:
+  java_vr_flink:
     name: Run Flink ValidatesRunner
     runs-on: self-hosted
     strategy:

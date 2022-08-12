@@ -17,7 +17,7 @@
 
 # To learn more about GitHub Actions in Apache Beam check the CI.md
 
-name: Java VR Twister 2 PostCommit
+name: Java VR Samza PostCommit
 on:
   workflow_dispatch:
   schedule:
@@ -28,8 +28,8 @@ on:
     # paths: '^runners/google-cloud-dataflow-java/*'
 
 jobs:
-  java_vr_twister:
-    name: Run Twister2 ValidatesRunner
+  java_vr_samza:
+    name: Run Samza ValidatesRunner
     runs-on: self-hosted
     strategy:
       fail-fast: false
@@ -39,8 +39,8 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Run :runners:twister2:validatesRunner
+      - name: Run :runners:samza:validatesRunner
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
-          gradle-command: :runners:twister2:validatesRunner
+          gradle-command: :runners:samza:validatesRunner
           gradle-switches: --continue --max-workers=8 -Pdocker-pull-licenses

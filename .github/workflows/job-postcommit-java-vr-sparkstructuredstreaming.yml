@@ -17,7 +17,7 @@
 
 # To learn more about GitHub Actions in Apache Beam check the CI.md
 
-name: Java VR Spark PostCommit
+name: Java VR Spark Structured Streaming PostCommit
 on:
   workflow_dispatch:
   schedule:
@@ -28,8 +28,8 @@ on:
     # paths: '^runners/google-cloud-dataflow-java/*'
 
 jobs:
-  java_vr_spark:
-    name: Run Spark ValidatesRunner
+  java_vr_spark-structured-streaming:
+    name: Run Spark Structured Streaming ValidatesRunner
     runs-on: self-hosted
     strategy:
       fail-fast: false
@@ -42,8 +42,8 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Run :runners:spark:${{ matrix.spark-versions }}:validatesRunner
+      - name: Run :runners:spark:${{ matrix.spark-versions }}:validatesStructuredStreamingRunnerBatch
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
-          gradle-command: :runners:spark:${{ matrix.spark-versions }}:validatesRunner
+          gradle-command: :runners:spark:${{ matrix.spark-versions }}:validatesStructuredStreamingRunnerBatch
           gradle-switches: --continue --max-workers=8 -Pdocker-pull-licenses

@@ -31,13 +31,12 @@ jobs:
   java_vr_spark_java11:
     name: Run Spark ValidatesRunner Java 11
     runs-on: self-hosted
-    strategy:
-      fail-fast: false
     timeout-minutes: 270
     steps:
       - name: Get number of available processors
-          id: get_available_processors
-          run: |
+        id: get_available_processors
+        shell: bash
+        run: |
             CORES=$(grep -c ^processor /proc/cpuinfo)
             BALANCE_CORES=$((3*CORES))
             echo $BALANCE_CORES
@@ -51,7 +50,7 @@ jobs:
         uses: ./.github/actions/setup-self-hosted-action
       - name: Spark 3 Test Jobs
         shell: bash
-          run: |
+        run: |
             ./gradlew :runners:spark:3:jar
             sleep 5
             ./gradlew :runners:spark:3:testJar

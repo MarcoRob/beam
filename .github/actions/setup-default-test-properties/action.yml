@@ -15,30 +15,17 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: 'Gradle command'
-description: 'Configuration actions to run a gradle command in self-hosted runner'
-inputs:
-  gradle-command:
-    required: true
-  arguments:
-    required: false
-    description: 'Gradle options'
-    default: ''
-  default-arguments:
-    required: false
-    description: 'Default gradle switches' # Copied from CommonJobProperties.groovy'
-    default: |
-      --continue -Dorg.gradle.jvmargs=-Xms2g -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.vfs.watch=false -Pdocker-pull-licenses
-  max-workers:
-    required: false
-    description: 'Max number of workers'
-    default: 8
-
+name: 'Setup TestProperties'
+description: 'Setup default test properties from a Json config file'
+outputs:
+  properties:
+    description: "Test properties"
+    value: ${{ steps.test-properties-json.outputs.test-properties }}
 runs:
   using: "composite"
   steps:
-    - name: Run Gradle Command
+    - id: test-properties-json
       shell: bash
       run: |
-        ./gradlew ${{ inputs.gradle-command }} --max-workers=${{ inputs.max-workers }} ${{ inputs.arguments }} \
-        ${{ inputs.default-arguments }}
+        JSON=$(cat ./.github/actions/setup-default-test-properties/test-properties.json)
+        echo "::set-output name=test-properties::$(echo $JSON)"

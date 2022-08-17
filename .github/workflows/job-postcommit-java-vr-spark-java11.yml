@@ -59,8 +59,8 @@ jobs:
         with:
           java-version: 11
       - name: Run :runners:spark:3:validatesRunner
-        uses: ./.github/actions/gradle-command-self-hosted-action
-        with:
-          gradle-command: :runners:spark:3:validatesRunner
-          arguments: "-x shadowJar -x shadowTestJar -x compileJava -x compileTestJava -x jar -x testJar -x classes -x testClasses"
-          max-workers: ${{ steps.get_available_processors.outputs.BALANCE_CORES }}
+        shell:
+        run: |
+          ./gradlew -x shadowJar -x shadowTestJar -x compileJava -x compileTestJava -x jar -x testJar -x classes -x testClasses -Dorg.gradle.java.home=/usr/lib/jvm/java-11-openjdk-amd64 --continue --max-workers=${{ steps.get_available_processors.outputs.BALANCE_CORES }} -Dorg.gradle.jvmargs=-Xms2g -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.vfs.watch=false -Pdocker-pull-licenses :runners:spark:3:validatesRunner
+        # arguments: "-x shadowJar -x shadowTestJar -x compileJava -x compileTestJava -x jar -x testJar -x classes -x testClasses"
+        # max-workers: ${{ steps.get_available_processors.outputs.BALANCE_CORES }}

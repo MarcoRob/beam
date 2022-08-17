@@ -40,8 +40,10 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Setup environment
+        uses: ./.github/actions/setup-self-hosted-action
       - name: Run :runners:portability:java:ulrLoopbackValidatesRunner
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:
           gradle-command: :runners:portability:java:ulrLoopbackValidatesRunner
-          gradle-switches: --continue --max-workers=8 -Pdocker-pull-licenses
+          arguments: --continue --max-workers=8 -Pdocker-pull-licenses

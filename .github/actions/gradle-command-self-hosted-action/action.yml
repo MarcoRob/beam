@@ -24,5 +24,7 @@ runs:
     - name: Run Gradle Command
       shell: bash
       run: |
-        ./gradlew ${{ inputs.gradle-command }} --max-workers=${{ inputs.max-workers }} ${{ inputs.default-arguments }} \
+        ./gradlew ${{ inputs.gradle-command }}
+        --max-workers=${{ inputs.max-workers }}
+        ${{ inputs.default-arguments }}
         ${{ inputs.arguments }}

@@ -24,8 +24,7 @@ on:
     - cron: '0 */6 * * *'
   pull_request:
     branches: ['master', 'release-*']
-    tags: 'v*'
-    # paths: '^runners/google-cloud-dataflow-java/*'
+    tags: ['v*']
 
 jobs:
   java_vr_spark_java11:
@@ -42,7 +41,7 @@ jobs:
             echo $BALANCE_CORES
             echo "::set-output name=BALANCE_CORES::$BALANCE_CORES"
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
@@ -54,9 +53,11 @@ jobs:
             ./gradlew :runners:spark:3:jar
             sleep 5
             ./gradlew :runners:spark:3:testJar
-      - name: Update and Set Java11 Version #Update JAVA_HOME with Java11 version
-        uses: actions/setup-java@v1
+      #Update JAVA_HOME with Java11 version
+      - name: Update and Set Java11 Version
+        uses: actions/setup-java@v3
         with:
+          distribution: 'temurin'
           java-version: 11
       - name: Remove default github maven configuration
         # This step is a workaround to avoid a decryption issue of Beam's

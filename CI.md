@@ -125,6 +125,20 @@ Service Account shall have following permissions ([IAM roles](https://cloud.goog
 | Java Wordcount Direct Runner | Runs Java WordCount example with Direct Runner.                                               | Yes              | Yes                   | Yes           | -                        |
 | Java Wordcount Dataflow      | Runs Java WordCount example with DataFlow Runner.                                             | -                | Yes                   | Yes           | Yes                      |
 
+### PostCommit Workflows
+
+#### Java PostCommit PortableJar Spark - [job-postcommit-java-portablejar-spark.yml](.github/workflows/job-postcommit-java-portablejar-spark.yml)
+
+| Job                             | Description                      | Pull Request Run | Direct Push/Merge Run | Scheduled Run | Requires GCP Credentials |
+|---------------------------------|----------------------------------|------------------|-----------------------|---------------|--------------------------|
+| Run PortableJar Spark PostCommit    | Tests creation and execution of portable pipeline Jars on the Spark runner    | No               | Yes                   | Yes           | No                      |
+
+#### Java PostCommit PortableJar Flink - [job-postcommit-java-portablejar-flink.yml](.github/workflows/job-postcommit-java-portablejar-flink.yml)
+
+| Job                             | Description                      | Pull Request Run | Direct Push/Merge Run | Scheduled Run | Requires GCP Credentials |
+|---------------------------------|----------------------------------|------------------|-----------------------|---------------|--------------------------|
+| Run PortableJar Flink PostCommit    | Tests creation and execution of portable pipeline Jars on the Flink runner    | No               | Yes                   | Yes           | No                      |
+
 ### GitHub Action Tips
 
 * If you introduce changes to the workflow it is possible that your changes will not be present in the check run triggered in Pull Request.

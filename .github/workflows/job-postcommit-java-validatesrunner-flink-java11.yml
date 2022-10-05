@@ -23,6 +23,9 @@ on:
   schedule:
     - cron: '0 */6 * * *'
   push:
+    branches: ['master', 'release-*', 'GABR-110-VR-flink-smz-twt-ci']
+    tags: ['v*']
+  pull_request:
     branches: ['master', 'release-*']
     tags: ['v*']
 permissions: read-all
@@ -79,12 +82,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: 11
-      - name: Remove default github maven configuration
-        # This step is a workaround to avoid a decryption issue of Beam's
-        # gradle-command-action plugin and github's provided maven
-        # settings.xml file
-        shell: bash
-        run: rm ~/.m2/settings.xml
       - name: Run :runners:flink:${{ matrix.flink-versions }}:validatesRunner
         uses: ./.github/actions/gradle-command-self-hosted-action
         with:

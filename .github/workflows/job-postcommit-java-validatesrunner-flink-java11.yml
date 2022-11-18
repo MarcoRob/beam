@@ -74,7 +74,6 @@ jobs:
           distribution: 'temurin'
           java-version: 11
       - name: Remove default github maven configuration
-        if: ${{ inputs.requires-java-8 == 'true'  }}
           # This step is a workaround to avoid a decryption issue of Beam's
           # gradle-command-action plugin and github's provided maven
           # settings.xml file

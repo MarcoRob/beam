@@ -37,6 +37,10 @@ jobs:
     env:
       VERSION_PATH: ${{ github.event.inputs.VERSION_TAG }}
     steps:
+      - name: Set git config
+        run: |
+          git config user.name $GITHUB_ACTOR
+          git config user.email actions@"$RUNNER_NAME".local
       - name: Check out code
         uses: actions/checkout@v3
       - name: Tag for Go SDK

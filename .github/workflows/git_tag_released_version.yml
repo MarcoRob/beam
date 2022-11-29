@@ -39,13 +39,17 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+      - name: Set git configgst
+        run: |
+          git config user.name $GITHUB_ACTOR
+          git config user.email actions@"$RUNNER_NAME".local
       - name: Tag for Go SDK
         run: |
           git tag -a sdks/${{ github.event.inputs.VERSION_TAG }} -m ${{ github.event.inputs.RC_TAG }}
-          git push https://github.com/apache/beam sdks/${{ github.event.inputs.VERSION_TAG }}
+          git push https://github.com/MarcoRob/beam sdks/${{ github.event.inputs.VERSION_TAG }}
       - name: Tag for repo root
         run: |
           git tag -a ${{ github.event.inputs.VERSION_TAG }} -m ${{ github.event.inputs.RC_TAG }}
-          git push https://github.com/apache/beam ${{ github.event.inputs.VERSION_TAG }}
+          git push https://github.com/MarcoRob/beam ${{ github.event.inputs.VERSION_TAG }}
 
 

@@ -27,7 +27,8 @@
 // Running integration tests can be done with a go test call with any flags that
 // are required by the test pipelines, such as --runner or --endpoint.
 // Example:
-//    go test -v ./sdks/go/test/integration/... --runner=portable --endpoint=localhost:8099
+//
+//	go test -v ./sdks/go/test/integration/... --runner=portable --endpoint=localhost:8099
 //
 // Alternatively, tests can be executed by running the
 // run_validatesrunner_tests.sh script, which also performs much of the
@@ -70,6 +71,7 @@ var directFilters = []string{
 	"TestDebeziumIO_BasicRead",
 	"TestJDBCIO_BasicReadWrite",
 	"TestJDBCIO_PostgresReadWrite",
+	"TestDataframe",
 	// Triggers, Panes are not yet supported
 	"TestTrigger.*",
 	"TestPanes",
@@ -88,6 +90,17 @@ var directFilters = []string{
 	"TestFhirIO.*",
 	// OOMs currently only lead to heap dumps on Dataflow runner
 	"TestOomParDo",
+	// The direct runner does not support user state.
+	"TestValueState",
+	"TestValueStateWindowed",
+	"TestValueStateClear",
+	"TestBagState",
+	"TestBagStateClear",
+	"TestCombiningState",
+	"TestMapState",
+	"TestMapStateClear",
+	"TestSetState",
+	"TestSetStateClear",
 }
 
 var portableFilters = []string{
@@ -108,13 +121,22 @@ var portableFilters = []string{
 	"TestFhirIO.*",
 	// OOMs currently only lead to heap dumps on Dataflow runner
 	"TestOomParDo",
+	// The portable runner does not support user state.
+	"TestValueState",
+	"TestValueStateWindowed",
+	"TestValueStateClear",
+	"TestBagState",
+	"TestBagStateClear",
+	"TestCombiningState",
+	"TestMapState",
+	"TestMapStateClear",
+	"TestSetState",
+	"TestSetStateClear",
 }
 
 var flinkFilters = []string{
 	// TODO(https://github.com/apache/beam/issues/20723): Flink tests timing out on reads.
 	"TestXLang_Combine.*",
-	// TODO(https://github.com/apache/beam/issues/21094): Test fails on post commits: "Insufficient number of network buffers".
-	"TestXLang_Multi",
 	"TestDebeziumIO_BasicRead",
 	// TODO(BEAM-13215): GCP IOs currently do not work in non-Dataflow portable runners.
 	"TestBigQueryIO.*",
@@ -126,6 +148,11 @@ var flinkFilters = []string{
 	"TestFhirIO.*",
 	// OOMs currently only lead to heap dumps on Dataflow runner
 	"TestOomParDo",
+	// Flink does not support map based state types.
+	"TestMapState",
+	"TestMapStateClear",
+	"TestSetStateClear",
+	"TestSetState",
 }
 
 var samzaFilters = []string{
@@ -149,6 +176,17 @@ var samzaFilters = []string{
 	"TestFhirIO.*",
 	// OOMs currently only lead to heap dumps on Dataflow runner
 	"TestOomParDo",
+	// The samza runner does not support user state.
+	"TestValueState",
+	"TestValueStateWindowed",
+	"TestValueStateClear",
+	"TestBagState",
+	"TestBagStateClear",
+	"TestCombiningState",
+	"TestMapState",
+	"TestMapStateClear",
+	"TestSetState",
+	"TestSetStateClear",
 }
 
 var sparkFilters = []string{
@@ -173,6 +211,11 @@ var sparkFilters = []string{
 	"TestFhirIO.*",
 	// OOMs currently only lead to heap dumps on Dataflow runner
 	"TestOomParDo",
+	// Spark does not support map based state types.
+	"TestMapState",
+	"TestMapStateClear",
+	"TestSetStateClear",
+	"TestSetState",
 }
 
 var dataflowFilters = []string{

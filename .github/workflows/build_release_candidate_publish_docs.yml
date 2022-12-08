@@ -1,0 +1,105 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# This workflow will choose a commit to be the basis of a release candidate
+## and push a new tagged commit for that RC.
+
+# To learn more about GitHub Actions in Apache Beam check the CI.md
+
+name: Build Release Candidate Publish Docs
+on:
+  workflow_dispatch:
+    inputs:
+      RC_TAG:
+        description: Beam RC Tag (e.g. v2.XX.0-RCX)
+        required: true
+      RELEASE:
+        description: Version Release
+
+jobs:
+  update_beam_site:
+    runs-on: [self-hosted, ubuntu-20.04]
+    env:
+      PYTHON_VIRTUALENV: python_staging_dir/venv
+      PYTHON_DOC: python_doc
+      JAVA_DOC: java_doc
+      WEBSITE_REPO: beam_website_repo
+      WEBSITE_UPDATE_DIR: website_update_dir
+      BEAM_WEBSITE_REPO: https://github.com/MarcoRob/beam-site
+      WEBSITE_ROOT_DIR: beam-site
+      USER_REMOTE_URL: 'git@github:com:$GITHUB_ACTOR/beam-site'
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Check out code
+        uses: actions/checkout@v3
+        with:
+          branch: ${{ github.event.inputs.RC_TAG }}
+      - name: Set git config
+        run: |
+          git config user.name $GITHUB_ACTOR
+          git config user.email actions@"$RUNNER_NAME".local
+      - name: Setup Env
+        run: |
+          cd ~
+          mkdir -p ${{ env.WEBSITE_UPDATE_DIR }}
+          cd ${{ env.WEBSITE_UPDATE_DIR }}
+          mkdir -p ${{ env.PYTHON_DOC }}
+          mkdir -p ${{ env.JAVA_DOC }}
+          mkdir -p ${{ env.WEBSITE_REPO }}
+      - name: Build Python Doc
+        run: |
+          python3 -m venv ${{ env.PYTHON_VIRTUALENV }}
+          source ${{ env.PYTHON_VIRTUALENV }}/bin/activate
+          pip install --upgrade pip setuptools wheel
+          cd ${{ env.PYTHON_DOC }}
+          pip install -U pip
+          pip install tox
+          cd $GITHUB_WORKSPACE
+          RELEASE_COMMIT=$(git rev-list -n 1 "tags/${{ github.event.inputs.RC_TAG }}")
+          cd sdks/python && pip install -r build-requirements.txt && tox -e py38-docs
+          GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
+          rm -rf $GENERATED_PYDOC/.doctrees
+      - name: Build Java Doc
+        run: |
+          cd $GITHUB_WORKSPACE
+          ./gradlew :sdks:java:javadoc:aggregateJavadoc
+          GENERATE_JAVADOC=$GITHUB_WORKSPACE/sdks/java/javadoc/build/docs/javadoc/
+      - name: Update Release Docs
+        run: |
+          cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}
+          git clone ${{ env.BEAM_WEBSITE_REPO }}
+          cd ${{ env.WEBSITE_ROOT_DIR }}
+          git checkout release-docs
+          git checkout -b update_release_${RELEASE} release-docs
+      - name: Copy Java Doc and Python into beam-site
+        run: |
+          cp -r ${GENERATE_JAVADOC} javadoc/${RELEASE}
+          echo javadoc/${RELEASE}
+          cp -r ${GENERATED_PYDOC} pydoc/${RELEASE}
+          echo pydoc/${RELEASE}
+      - name: Push the changes to repository
+        run: |
+          git add -A
+          git commit -m "Update beam-site for release ${RELEASE}." -m "Content generated from commit ${RELEASE_COMMIT}."
+          git push -f ${{ env.USER_REMOTE_URL }}
+
+
+

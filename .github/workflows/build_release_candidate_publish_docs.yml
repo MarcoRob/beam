@@ -46,11 +46,16 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.7'
       - name: Check out code
         uses: actions/checkout@v3
-        #with:
-        #  branch: ${{ github.event.inputs.RC_TAG }}
+        with:
+          fetch-depth: 0
+      #- name: Clone Beam site
+      #  run: |
+      #    rm -rf beam
+      #    git clone --branch release-${{ github.event.inputs.RELEASE }} --depth 1 https://github.com/MarcoRob/beam.git
+      #    cd beam
       - name: Set git config
         run: |
           git config user.name $GITHUB_ACTOR
@@ -72,10 +77,14 @@ jobs:
           pip install -U pip
           pip install tox
           cd $GITHUB_WORKSPACE
-          echo $GITHUB_WORKSPACE
           RELEASE_COMMIT="$(git rev-list --tags '${{ github.event.inputs.RC_TAG }}' --max-count=1)"
-          cd sdks/python && pip install -r build-requirements.txt && tox -e py38-docs
+          echo $RELEASE_COMMIT
+          cd sdks/python
+          pip install -r build-requirements.txt
+          echo "=========== tox -e py38-docs ==========="
+          tox -e py38-docs
           GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
+          echo $GENERATED_PYDOC
           rm -rf $GENERATED_PYDOC/.doctrees
       - name: Build Java Doc
         run: |

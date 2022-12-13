@@ -32,7 +32,7 @@ on:
 
 jobs:
   update_beam_site:
-    runs-on: [self-hosted, ubuntu-20.04]
+    runs-on: [ubuntu-20.04]
     env:
       PYTHON_VIRTUALENV: python_staging_dir/venv
       PYTHON_DOC: python_doc
@@ -46,7 +46,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.7'
+          python-version: '3.8'
       - name: Check out code
         uses: actions/checkout@v3
         with:
@@ -79,10 +79,9 @@ jobs:
           cd $GITHUB_WORKSPACE
           RELEASE_COMMIT="$(git rev-list --tags '${{ github.event.inputs.RC_TAG }}' --max-count=1)"
           echo $RELEASE_COMMIT
-          cd sdks/python
-          pip install -r build-requirements.txt
+          pip install -e .[gcp,test]
           echo "=========== tox -e py38-docs ==========="
-          tox -e py38-docs
+          cd sdks/python && pip install -r build-requirements.txt && tox -e py38-docs
           GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
           echo $GENERATED_PYDOC
           rm -rf $GENERATED_PYDOC/.doctrees

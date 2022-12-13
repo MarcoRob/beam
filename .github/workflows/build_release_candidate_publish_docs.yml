@@ -84,6 +84,17 @@ jobs:
           GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
           echo $GENERATED_PYDOC
           rm -rf $GENERATED_PYDOC/.doctrees
+      - name: Set Java Version
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: 8
+      - name: Remove default github maven configuration
+        # This step is a workaround to avoid a decryption issue of Beam's
+        # gradle-command-action plugin and github's provided maven
+        # settings.xml file
+        shell: bash
+        run: rm ~/.m2/settings.xml
       - name: Build Java Doc
         run: |
           cd $GITHUB_WORKSPACE
@@ -92,15 +103,18 @@ jobs:
       - name: Update Release Docs
         run: |
           cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}
+          rm -rf beam-site
           git clone ${{ env.BEAM_WEBSITE_REPO }}
           cd ${{ env.WEBSITE_ROOT_DIR }}
           git checkout release-docs
           git checkout -b update_release_${RELEASE} release-docs
       - name: Copy Java Doc and Python into beam-site
         run: |
-          cp -r ${GENERATE_JAVADOC} javadoc/${{ github.event.inputs.RELEASE }}
+          echo $GENERATE_JAVADOC
+          echo $GENERATED_PYDOC
+          cp -r $GENERATE_JAVADOC javadoc/${{ github.event.inputs.RELEASE }}
           echo javadoc/${{ github.event.inputs.RELEASE }}
-          cp -r ${GENERATED_PYDOC} pydoc/${{ github.event.inputs.RELEASE }}
+          cp -r $GENERATED_PYDOC pydoc/${{ github.event.inputs.RELEASE }}
           echo pydoc/${RELEASE}
       - name: Push the changes to repository
         run: |

@@ -32,7 +32,8 @@ on:
 
 jobs:
   update_beam_site:
-    runs-on: [ubuntu-20.04]
+    runs-on: [self-hosted, ubuntu-20.04]
+    # runs-on: ubuntu-latest
     env:
       PYTHON_VIRTUALENV: python_staging_dir/venv
       PYTHON_DOC: python_doc
@@ -41,7 +42,7 @@ jobs:
       WEBSITE_UPDATE_DIR: website_update_dir
       BEAM_WEBSITE_REPO: https://github.com/MarcoRob/beam-site
       WEBSITE_ROOT_DIR: beam-site
-      USER_REMOTE_URL: 'git@github:com:$GITHUB_ACTOR/beam-site'
+      USER_REMOTE_URL: 'https://github.com/MarcoRob/beam-site.git'
     steps:
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -68,22 +69,34 @@ jobs:
           mkdir -p ${{ env.PYTHON_DOC }}
           mkdir -p ${{ env.JAVA_DOC }}
           mkdir -p ${{ env.WEBSITE_REPO }}
-      - name: Build Python Doc
-        run: |
-          python3 -m venv ${{ env.PYTHON_VIRTUALENV }}
-          source ${{ env.PYTHON_VIRTUALENV }}/bin/activate
-          pip install --upgrade pip setuptools wheel
-          cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.PYTHON_DOC }}
-          pip install -U pip
-          pip install tox
           cd $GITHUB_WORKSPACE
           RELEASE_COMMIT="$(git rev-list --tags '${{ github.event.inputs.RC_TAG }}' --max-count=1)"
-          echo $RELEASE_COMMIT
-          echo "=========== tox -e py38-docs ==========="
-          cd sdks/python && pip install -e .[gcp,test] && pip install -r build-requirements.txt && tox -e py38-docs
-          GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
-          echo $GENERATED_PYDOC
-          rm -rf $GENERATED_PYDOC/.doctrees
+          echo "RELEASE_COMMIT=${RELEASE_COMMIT}" >> $GITHUB_ENV
+      #- name: Build Python Doc
+      #        # pip install mypy-protobuf
+      #        #          pip install grpcio-tools
+      #        #          pip install -e .[gcp,test]
+      #        run: |
+      #          cd $GITHUB_WORKSPACE/sdks/python
+      #          pwd
+      #          python3 -m venv ${{ env.PYTHON_VIRTUALENV }}
+      #          source ${{ env.PYTHON_VIRTUALENV }}/bin/activate
+      #          pip install --upgrade pip setuptools wheel
+      #          pip install ez_setup
+      #          pip install -U pip
+      #          pip install tox
+      #          RELEASE_COMMIT="$(git rev-list --tags '${{ github.event.inputs.RC_TAG }}' --max-count=1)"
+      #          echo $RELEASE_COMMIT
+      #          echo "RELEASE_COMMIT=${RELEASE_COMMIT}" >> $GITHUB_ENV
+      #          echo "=========== tox -e py38-docs ==========="
+      #          pip install mypy-protobuf
+      #          pip install -e .[gcp,test]
+      #          pip install -r build-requirements.txt
+      #          tox -e py38-docs
+      #          GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
+      #          echo "GENERATED_PYDOC=${GENERATED_PYDOC}" >> $GITHUB_ENV
+      #          echo $GENERATED_PYDOC
+      #          rm -rf $GENERATED_PYDOC/.doctrees
       - name: Set Java Version
         uses: actions/setup-java@v3
         with:
@@ -100,6 +113,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           ./gradlew :sdks:java:javadoc:aggregateJavadoc
           GENERATE_JAVADOC=$GITHUB_WORKSPACE/sdks/java/javadoc/build/docs/javadoc/
+          echo "GENERATE_JAVADOC=${GENERATE_JAVADOC}" >> $GITHUB_ENV
       - name: Update Release Docs
         run: |
           cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}
@@ -107,19 +121,27 @@ jobs:
           git clone ${{ env.BEAM_WEBSITE_REPO }}
           cd ${{ env.WEBSITE_ROOT_DIR }}
           git checkout release-docs
-          git checkout -b update_release_${RELEASE} release-docs
+          git checkout -b update_release_${{ github.event.inputs.RELEASE }} release-docs
       - name: Copy Java Doc and Python into beam-site
+        # mkdir -p pydoc/${{ github.event.inputs.RELEASE }}
+        # cp -r ${{env.GENERATED_PYDOC}} pydoc/${{ github.event.inputs.RELEASE }}
+        # echo pydoc/${{ github.event.inputs.RELEASE }}
         run: |
-          echo $GENERATE_JAVADOC
-          echo $GENERATED_PYDOC
-          cp -r $GENERATE_JAVADOC javadoc/${{ github.event.inputs.RELEASE }}
+          cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}/${{ env.WEBSITE_ROOT_DIR }}
+          mkdir -p javadoc/${{ github.event.inputs.RELEASE }}
+          echo ${{env.GENERATE_JAVADOC}}
+          echo ${{env.GENERATED_PYDOC}}
+          cp -r ${{env.GENERATE_JAVADOC}} javadoc/${{ github.event.inputs.RELEASE }}
           echo javadoc/${{ github.event.inputs.RELEASE }}
-          cp -r $GENERATED_PYDOC pydoc/${{ github.event.inputs.RELEASE }}
-          echo pydoc/${RELEASE}
+          pwd
+          ls
       - name: Push the changes to repository
         run: |
-          git add -A
-          git commit -m "Update beam-site for release ${{ github.event.inputs.RELEASE }}." -m "Content generated from commit ${ RELEASE_COMMIT }."
+          cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}/${{ env.WEBSITE_ROOT_DIR }}
+          git config user.name $GITHUB_ACTOR
+          git config user.email actions@"$RUNNER_NAME".local
+          git add --all
+          git commit -m "Update beam-site for release ${{ github.event.inputs.RELEASE }}." -m "Content generated from commit ${{ env.RELEASE_COMMIT }}."
           git push -f ${{ env.USER_REMOTE_URL }}
 
 

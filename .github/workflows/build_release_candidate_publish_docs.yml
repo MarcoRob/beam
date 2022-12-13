@@ -79,9 +79,8 @@ jobs:
           cd $GITHUB_WORKSPACE
           RELEASE_COMMIT="$(git rev-list --tags '${{ github.event.inputs.RC_TAG }}' --max-count=1)"
           echo $RELEASE_COMMIT
-          pip install -e .[gcp,test]
           echo "=========== tox -e py38-docs ==========="
-          cd sdks/python && pip install -r build-requirements.txt && tox -e py38-docs
+          cd sdks/python && pip install -e .[gcp,test] && pip install -r build-requirements.txt && tox -e py38-docs
           GENERATED_PYDOC=$GITHUB_WORKSPACE/sdks/python/target/docs/_build
           echo $GENERATED_PYDOC
           rm -rf $GENERATED_PYDOC/.doctrees

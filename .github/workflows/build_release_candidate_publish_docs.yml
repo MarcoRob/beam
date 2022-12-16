@@ -41,7 +41,7 @@ jobs:
       JAVA_DOC: java_doc
       WEBSITE_REPO: beam_website_repo
       WEBSITE_UPDATE_DIR: website_update_dir
-      BEAM_WEBSITE_REPO: https://github.com/apache/beam-site.git
+      BEAM_WEBSITE_REPO: https://github.com/MarcoRob/beam-site.git
       WEBSITE_ROOT_DIR: beam-site
       USER_REMOTE_URL: git@github.com:MarcoRob/beam-site.git
     steps:
@@ -146,25 +146,27 @@ jobs:
       - name: Push changes to beam-site repository
         env:
           SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+          DESTINATION_REPOSITORY_USERNAME: "MarcoRob"
+          DESTINATION_REPOSITORY_NAME: "beam-site"
         run: |
-          sleep 500000000000
           echo ====== Set SSH Deploy Key =======
           mkdir --parents "$HOME/.ssh"
           DEPLOY_KEY_FILE="$HOME/.ssh/deploy_key"
           echo "${{env.SSH_DEPLOY_KEY}}" > "$DEPLOY_KEY_FILE"
           chmod 600 "$DEPLOY_KEY_FILE"
           SSH_KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts"
+          GITHUB_SERVER="github.com"
           ssh-keyscan -H "$GITHUB_SERVER" > "$SSH_KNOWN_HOSTS_FILE"
           export GIT_SSH_COMMAND="ssh -i "$DEPLOY_KEY_FILE" -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE"
-          GIT_CMD_REPOSITORY="git@$GITHUB_SERVER:$DESTINATION_REPOSITORY_USERNAME/$DESTINATION_REPOSITORY_NAME.git"
-          echo "GIT_CMD_REPOSITORY=${GIT_CMD_REPOSITORY}" >> $GITHUB_ENV
+          GIT_CMD_REPOSITORY="git@$GITHUB_SERVER:${{env.DESTINATION_REPOSITORY_USERNAME}}/${{env.DESTINATION_REPOSITORY_NAME}}.git"
+          echo $GIT_CMD_REPOSITORY
           echo ====== Change to beam-site repository ======
           cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}/${{ env.WEBSITE_ROOT_DIR }}
           git config user.name $GITHUB_ACTOR
           git config user.email actions@"$RUNNER_NAME".local
           git add --all
           git commit -m "Update beam-site for release ${{ github.event.inputs.RELEASE }}." -m "Content generated from commit ${{ env.RELEASE_COMMIT }}."
-          git push -f $GIT_CMD_REPOSITORY origin update_release_${{ github.event.inputs.RELEASE }}
+          git push -f $GIT_CMD_REPOSITORY update_release_${{ github.event.inputs.RELEASE }}
 
 
 

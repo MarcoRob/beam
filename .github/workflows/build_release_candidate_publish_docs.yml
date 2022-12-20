@@ -168,20 +168,13 @@ jobs:
           GITHUB_SERVER="github.com"
           ssh-keyscan -H "$GITHUB_SERVER" > "$SSH_KNOWN_HOSTS_FILE"
           export GIT_SSH_COMMAND="ssh -i "$DEPLOY_KEY_FILE" -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE"
-          GIT_CMD_REPOSITORY="https://${{env.API_GITHUB_TOKEN}}@$GITHUB_SERVER/${{env.DESTINATION_REPOSITORY_USERNAME}}/${{env.DESTINATION_REPOSITORY_NAME}}.git"
-          echo $GIT_CMD_REPOSITORY
-          echo ====== Change to beam-site repository ======
+          echo ====== Change to beam-site repository and push changes ======
           cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}/${{ env.WEBSITE_ROOT_DIR }}
           git config user.name $GITHUB_ACTOR
           git config user.email actions@"$RUNNER_NAME".local
           git add --all
           git commit -m "Update beam-site for release ${{ github.event.inputs.RELEASE }}." -m "Content generated from commit ${{ env.RELEASE_COMMIT }}."
-          git push -f $GIT_CMD_REPOSITORY update_release_${{ github.event.inputs.RELEASE }}
-      - name: Create new PR Release
-        env:
-          API_GITHUB_TOKEN: ${{ secrets.API_GITHUB_TOKEN }}
-        run: |
-          cd ~/${{ env.WEBSITE_UPDATE_DIR }}/${{ env.WEBSITE_REPO }}/${{ env.WEBSITE_ROOT_DIR }}
-          GITHUB_PR_URL=$(gh pr create -H update_release_${{ github.event.inputs.RELEASE }} -B apache:release-docs -t "Publish ${{github.event.inputs.RELEASE}} release" -b "Test PR ${{github.event.inputs.RELEASE}} release")
-          echo $GITHUB_PR_URL
-          echo "Finished v${{ github.event.inputs.RELEASE }}-RC${{ github.event.inputs.RC_NO }} creation."
+          git push -f ${{env.USER_REMOTE_URL}} update_release_${{ github.event.inputs.RELEASE }}
+          echo ======== Release Docs pushed into update_release_${{ github.event.inputs.RELEASE }} branch =======
+          PULL_REQUEST_URL="$(${{env.BEAM_WEBSITE_REPO}}/pull/new/update_${{ github.event.inputs.RELEASE }})"
+          echo "You can generate the PR via ${PULL_REQUEST_URL}"

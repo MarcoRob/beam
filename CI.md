@@ -179,7 +179,7 @@ Service Account shall have following permissions ([IAM roles](https://cloud.goog
 
 | Workflow                                                                         | Description             | Requires GCP Credentials  |
 |----------------------------------------------------------------------------------|-------------------------|---------------------------|
-| [job-precommit-placeholder.yml](.github/workflows/job-precommit-placeholder.yml) | Description placeholder | Yes/No                    |
+| [job-precommit-python-runners-portability-spark.yml](.github/workflows/job-precommit-python-runners-portability-spark.yml) | Run Python Precommit Runners Portability Spark | Yes/No                    |
 
 ### PostCommit Workflows
 
